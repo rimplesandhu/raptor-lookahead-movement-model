@@ -228,7 +228,7 @@ class KalmanFilter:
         ymin = np.amin(m_history)
         ymax = np.amax(m_history)
         ymargin = 0.4 * (ymax - ymin)
-        ax.set_ylim([ymin - ymargin, ymax + ymargin])
+        #ax.set_ylim([ymin - ymargin, ymax + ymargin])
         ax.set_xlabel('Time elapsed (Seconds)')
         fig.tight_layout()
         return fig, ax
@@ -242,7 +242,9 @@ class KalmanFilter:
         hdict.update({'loglik': np.asarray(self._filter_loglik)})
         for i in range(self._dim_x):
             hdict.update({f'm_{i}': np.asarray(self._filter_mean)[:, i]})
-            hdict.update({f'P_{i}{i}': np.asarray(self._filter_cov)[:, i, i]})
+            for j in range(i, self._dim_x):
+                hdict.update(
+                    {f'P_{i}{j}': np.asarray(self._filter_cov)[:, i, j]})
         return pd.DataFrame(hdict)
 
     @property
@@ -254,8 +256,9 @@ class KalmanFilter:
         hdict.update({'loglik': np.asarray(self._smoother_loglik)})
         for i in range(self._dim_x):
             hdict.update({f'm_{i}': np.asarray(self._smoother_mean)[:, i]})
-            hdict.update({f'P_{i}{i}': np.asarray(
-                self._smoother_cov)[:, i, i]})
+            for j in range(i, self._dim_x):
+                hdict.update(
+                    {f'P_{i}{j}': np.asarray(self._filter_cov)[:, i, j]})
         return pd.DataFrame(hdict)
 
     @property
