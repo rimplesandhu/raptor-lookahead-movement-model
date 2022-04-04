@@ -2,6 +2,7 @@
 
 from .kalman_filter import *
 from .linear_motion_models import *
+from .animation import *
 # from .wtk import *
 # from .config import Config
 # from .turbines import TurbinesUSWTB

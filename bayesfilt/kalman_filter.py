@@ -186,16 +186,18 @@ class KalmanFilter:
         time_window: Optional[Tuple[float, float]] = None,
         plot_filter: bool = True,
         plot_smoother: bool = True,
-        show_legend: bool = True
+        show_legend: bool = True,
+        ylim=None,
+        cb_fac=1.
     ):
         """ plots the time history of state estimates """
-        fig, ax = plt.subplots(figsize=(12, 3.5))
-        cb_fac = 1.
+        fig, ax = plt.subplots(figsize=(7, 2.5))
+
         col_name_m = f'm_{state_index}'
         col_name_p = f'P_{state_index}{state_index}'
         fdf = self.df_filter
         if plot_filter:
-            t_history = fdf['time_elapsed'].values
+            t_history = fdf['time_elapsed'].values / 60.
             m_history = fdf[col_name_m].values
             cb_history = cb_fac * fdf.loc[:, col_name_p].values**0.5
             ax.plot(t_history, m_history, '-b', label='Kalman Filter')
@@ -205,7 +207,7 @@ class KalmanFilter:
         if plot_smoother:
             sdf = self.df_smoother
             assert fdf.shape == sdf.shape
-            t_history = sdf['time_elapsed'].values
+            t_history = sdf['time_elapsed'].values / 60.
             m_history = sdf[col_name_m].values
             cb_history = cb_fac * sdf[col_name_p].values**0.5
             ax.plot(t_history, m_history, '-g', label='Kalman Smoother')
@@ -214,10 +216,10 @@ class KalmanFilter:
                             fc='g', ec='none', alpha=.3)
         if obs_index is not None:
             udf = fdf[~fdf['loglik'].isna()]
-            ax.plot(udf['time_elapsed'], self._observations[1:, obs_index],
+            ax.plot(udf['time_elapsed'] / 60., self._observations[1:, obs_index],
                     '*r', alpha=0.5,
-                    markersize=5., label='Observations')
-        ax.set_ylabel(f'State: {self.labels[state_index]}')
+                    markersize=2., label='Observations')
+        ax.set_ylabel(f'{self.labels[state_index]}')
         if show_legend:
             ax.legend()
         ax.grid(True)
@@ -225,11 +227,12 @@ class KalmanFilter:
             ax.set_xlim([0., t_history[-1]])
         else:
             ax.set_xlim(time_window)
-        ymin = np.amin(m_history)
-        ymax = np.amax(m_history)
-        ymargin = 0.4 * (ymax - ymin)
-        #ax.set_ylim([ymin - ymargin, ymax + ymargin])
-        ax.set_xlabel('Time elapsed (Seconds)')
+        # ymin = np.amin(m_history)
+        # ymax = np.amax(m_history)
+        # ymargin = 0.4 * (ymax - ymin)
+        if ylim is not None:
+            ax.set_ylim(ylim)
+        ax.set_xlabel('Time elapsed (minutes)')
         fig.tight_layout()
         return fig, ax
 
