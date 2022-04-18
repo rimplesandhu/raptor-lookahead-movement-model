@@ -8,7 +8,6 @@ def unscented_transform(sigmas, Wm, Wc, noise_cov=None,
     """
     Computes unscented transform of a set of sigma points and weights.
     returns the mean and covariance in a tuple.
-    This works in conjunction with the UnscentedKalmanFilter class.
     Parameters
     ----------
     sigmas: ndarray, of size (n, 2n+1)
