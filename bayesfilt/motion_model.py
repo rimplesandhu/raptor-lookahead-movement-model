@@ -1,0 +1,115 @@
+"""Base class for defining a motion model"""
+from abc import abstractmethod
+import numpy as np
+from numpy import ndarray
+from .state_space_model import StateSpaceModel
+
+
+class MotionModel(StateSpaceModel):
+    # pylint: disable=invalid-name
+    """Base class for defining a motion model"""
+
+    def __init__(
+        self,
+        nx: int,
+        nq: int | None = None,
+        name: str = 'motion_model'
+    ) -> None:
+
+        # model parameters
+        super().__init__(nx=nx, name=name)
+        self._nq = self.nx if nq is None else int(nq)  # dim of error vector
+        self._dt: float  # time interval
+
+        # model matrices
+        self._F: ndarray | None = None  # State transition matrix
+        self._G: ndarray | None = None  # Error Jacobian matrix
+        self._Q: ndarray | None = None  # Error covariance matrix
+
+    @abstractmethod
+    def update(
+        self,
+        dt: float,
+        sigmas: ndarray,
+        w: ndarray
+    ) -> None:
+        """Update system parameters"""
+
+    @abstractmethod
+    def f(
+        self,
+        x: ndarray,
+        q: ndarray | None = None,
+        u: ndarray | None = None
+    ) -> ndarray:
+        """Model dynamics equation"""
+
+    @abstractmethod
+    def get_F(
+        self,
+        x: ndarray | None,
+        q: ndarray | None
+    ) -> ndarray:
+        """Get F matrix"""
+
+    @abstractmethod
+    def get_G(
+        self,
+        x: ndarray | None,
+        q: ndarray | None
+    ) -> ndarray:
+        """Get G matrix"""
+
+    @abstractmethod
+    def get_Q(
+        self,
+        x: ndarray | None,
+        q: ndarray | None
+    ) -> ndarray:
+        """Get Q matrix"""
+
+    @property
+    def nq(self) -> int:
+        """Getter for error dimension"""
+        return self._nq
+
+    @property
+    def dt(self) -> int:
+        """Getter for time interval"""
+        return self._dt
+
+    @property
+    def F(self) -> ndarray:
+        """Getter for process matrix F"""
+        return self._F
+
+    @property
+    def G(self) -> ndarray:
+        """Getter for error jacobian matrix G"""
+        return self._Q
+
+    @property
+    def Q(self) -> ndarray:
+        """Getter for error covariance matrix Q"""
+        return self._Q
+
+    def _initiate_matrices_to_identity(self):
+        """Initiate all matrices to identity"""
+        self._F = np.eye(self._nx)
+        self._G = np.eye(self._nx)
+        self._Q = np.eye(self._nx)
+
+    def _initiate_matrices_to_zeros(self):
+        """Initiate all matrices to zeros"""
+        self._F = np.zeros((self._nx, self._nx))
+        self._G = np.zeros((self._nx, self._nq))
+        self._Q = np.zeros((self._nq, self._nq))
+
+    def __str__(self):
+        out_str = f':::{self.name}\n'
+        out_str += f'State Dimension: {self._nx}\n'
+        out_str += f'Error Dimension: {self._nq}\n'
+        out_str += f'F:\n {np.array_str(np.array(self._F), precision=3)}\n'
+        out_str += f'G:\n {np.array_str(np.array(self._G), precision=3)}\n'
+        out_str += f'Q:\n {np.array_str(np.array(self._Q), precision=3)}\n'
+        return out_str

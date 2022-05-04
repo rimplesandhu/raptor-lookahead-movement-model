@@ -1,191 +1,208 @@
-""" Classes for defining linear motion models """
-from abc import abstractmethod
-import numpy as np
+"""Classes defining linear motion models"""
 from numpy import ndarray
+from .motion_model import MotionModel
 
 
-def symmetrize(a_mat: np.ndarray):
-    """ Return a symmetrized version of NumPy array """
-    return a_mat + a_mat.T - np.diag(a_mat.diagonal())
+class LinearMotionModel(MotionModel):
+    # pylint: disable=invalid-name
+    """Base class for linear motion model with additive Gaussain errors"""
 
+    def __init__(self, nx: int, name: str) -> None:
+        super().__init__(nx=nx, nq=nx, name=name)
+        self._dof: int
 
-class LinearMotionModel:
-    """ Base class for defining a linear motion model with additive
-    Gaussain errors"""
-
-    def __init__(self, dim: int) -> None:
-        self._dim: int = dim  # dimension
-        self._F: ndarray = np.eye(self.dim)  # State transition matrix
-        self._Q: ndarray = np.eye(self.dim)  # model error covariance matrix
-
-    @abstractmethod
-    def compute(
+    def f(
         self,
-        delta_t: float,
-        model_error_stds: ndarray,
-        gamma_par: float
-    ) -> None:
-        pass
+        x: ndarray,
+        q: ndarray | None = None,
+        u: ndarray | None = None
+    ) -> ndarray:
+        """Model dynamics equation"""
+        x = self.vec_setter(x, self.nx)
+        if self._F is None:
+            self.raiseit('Need to initiate F matrix! Run update()')
+        out_x = self._F @ x
+        if q is not None:
+            q = self.vec_setter(q, self.nx)
+            out_x += q
+        if u is not None:
+            u = self.mat_setter(q, self.nx)
+            out_x += u
+        return out_x
 
-    @property
-    def dim(self) -> int:
-        """Returns dimension (size) of the state vector"""
-        return self._dim
-
-    @property
-    def F(self) -> ndarray:
-        """Returns process matrix F"""
+    def get_F(
+        self,
+        x: ndarray | None,
+        q: ndarray | None
+    ) -> ndarray:
+        """Get F matrix"""
         return self._F
 
-    @property
-    def Q(self) -> ndarray:
-        """Returns process error covariance matrix Q"""
+    def get_G(
+        self,
+        x: ndarray | None,
+        q: ndarray | None
+    ) -> ndarray:
+        """Get G matrix"""
+        return self._G
+
+    def get_Q(
+        self,
+        x: ndarray | None,
+        q: ndarray | None
+    ) -> ndarray:
+        """Get Q matrix"""
         return self._Q
 
-    def __str__(self):
-        out_str = ':::Linear motion model\n'
-        out_str += f'Dimension: {self._dim}\n'
-        out_str += f'Process mat F:\n {np.array_str(self._F, precision=3)}\n'
-        out_str += f'Error cov mat Q:\n {np.array_str(self._Q, precision=3)}\n'
-        return out_str
+    @property
+    def dof(self) -> int:
+        """Getter for degree of freedom"""
+        return self._dof
 
 
 class RandomWalk1D(LinearMotionModel):
-    """Class for random walk 1d model """
+    """Class for Random Walk 1D model """
 
     def __init__(self):
-        super().__init__(dim=1)
+        super().__init__(nx=1, name='RW1D')
+        self._dof = self._nx
 
-    def compute(
+    def update(
         self,
-        delta_t: float,
-        model_error_stds: float,
-        gamma_par: float = 1.
+        dt: float,
+        sigmas: ndarray,
+        w: ndarray | None = None
     ) -> None:
-        """ Computes updated model matrices """
-        self._F[0, 0] = 1.
-        self._Q[0, 0] = 1. * delta_t**1 / 1
-        model_error_stds = np.asarray(model_error_stds)
-        assert model_error_stds.size == 1, 'Need 1 standard deviation for RW1D!'
-        self._Q *= model_error_stds**2
+        """Update system parameters"""
+        self._dt = self.float_setter(dt)
+        self._sigmas = self.float_setter(sigmas)
+        self._initiate_matrices_to_identity()
+        self._Q[0, 0] = self._sigmas**2 * self.dt**1 / 1
 
 
 class RandomWalkND(LinearMotionModel):
-    """ Class for random walk model in ND """
+    """Class for random walk model in ND"""
 
     def __init__(self, dof: int):
-        super().__init__(dim=dof)
+        self._dof = self.int_setter(dof)
+        super().__init__(nx=self._dof, name=f'RW{self._dof}D')
         self._rw1d = RandomWalk1D()
 
-    def compute(
+    def update(
         self,
-        delta_t: float,
-        model_error_stds: ndarray,
-        gamma_par: float = 1.
+        dt: float,
+        sigmas: ndarray,
+        w: ndarray | None = None
     ) -> None:
-        """ Computes updated model matrices """
-        model_error_stds = np.asarray(model_error_stds)
-        out_string = 'Size mismatch for error standard deviations!'
-        assert model_error_stds.size == self.dim, out_string
-        for i, error_std in enumerate(model_error_stds):
-            self._rw1d.compute(delta_t, error_std, gamma_par=gamma_par)
+        """Update system parameters"""
+        self._dt = self.float_setter(dt)
+        self.sigmas = self.vec_setter(sigmas, self._dof)
+        self._initiate_matrices_to_identity()
+        for i, sigma in enumerate(self.sigmas):
+            self._rw1d.update(self.dt, sigma)
             self._F[i * 1:(i + 1) * 1, i * 1:(i + 1) * 1] = self._rw1d.F.copy()
             self._Q[i * 1:(i + 1) * 1, i * 1:(i + 1) * 1] = self._rw1d.Q.copy()
 
 
 class ConstantVelocity1D(LinearMotionModel):
-    """ Class for constant velocity model in 1D """
+    """Class for constant velocity model in 1D"""
 
     def __init__(self):
-        super().__init__(dim=2)
+        super().__init__(nx=2, name='CV1D')
+        self._dof = 1
 
-    def compute(
+    def update(
         self,
-        delta_t: float,
-        model_error_stds: float,
-        gamma_par: float = 1.
+        dt: float,
+        sigmas: ndarray,
+        w: ndarray | None = None
     ) -> None:
-        """ Computes updated model matrices """
-        self._F[0, 1] = delta_t
-        self._F[1, 1] = gamma_par
-        self._Q[0, 0] = 1. * delta_t**3 / 3
-        self._Q[0, 1] = 1. * delta_t**2 / 2
-        self._Q[1, 1] = delta_t
-        self._Q = symmetrize(self._Q)
-        model_error_stds = np.asarray(model_error_stds)
-        assert model_error_stds.size == 1, 'Need 1 standard deviation for CV1D!'
-        self._Q *= model_error_stds**2
+        """Update system parameters"""
+        self._dt = self.float_setter(dt)
+        self._sigmas = self.float_setter(sigmas)
+        self._initiate_matrices_to_identity()
+        self._F[0, 1] = self.dt
+        self._Q[0, 0] = 1. * self.dt**3 / 3
+        self._Q[0, 1] = 1. * self.dt**2 / 2
+        self._Q[1, 1] = self.dt
+        self._Q = self.symmetrize(self._Q)
+        self._Q *= self.sigmas**2
 
 
 class ConstantVelocityND(LinearMotionModel):
     """Class for constant velocity model in N-dimensions"""
 
     def __init__(self, dof: int):
-        super().__init__(dim=2 * dof)
+        self._dof = self.int_setter(dof)
+        super().__init__(nx=int(2 * self._dof), name=f'CV{self._dof}D')
         self._cv1d = ConstantVelocity1D()
 
-    def compute(
+    def update(
         self,
-        delta_t: float,
-        model_error_stds: ndarray,
-        gamma_par: float = 1.
+        dt: float,
+        sigmas: ndarray,
+        w: ndarray | None = None
     ) -> None:
-        """ Computes updated model matrices """
-        model_error_stds = np.asarray(model_error_stds)
-        out_string = 'Size mismatch for error standard deviations!'
-        assert model_error_stds.size == int(self.dim / 2), out_string
-        for i, error_std in enumerate(model_error_stds):
-            self._cv1d.compute(delta_t, error_std, gamma_par=gamma_par)
+        """Update system parameters"""
+        self._dt = self.float_setter(dt)
+        self.sigmas = self.vec_setter(sigmas, self._dof)
+        self._initiate_matrices_to_identity()
+        for i, sigma in enumerate(self.sigmas):
+            self._cv1d.update(self.dt, sigma)
             self._F[i * 2:(i + 1) * 2, i * 2:(i + 1) * 2] = self._cv1d.F.copy()
             self._Q[i * 2:(i + 1) * 2, i * 2:(i + 1) * 2] = self._cv1d.Q.copy()
 
 
 class ConstantAcceleration1D(LinearMotionModel):
-    """ Class for constant acceleration model in 1D """
+    """Class for constant acceleration model in 1D"""
 
     def __init__(self):
-        super().__init__(dim=3)
+        super().__init__(nx=3, name='CA1D')
+        self._dof = 1
 
-    def compute(
-            self,
-            delta_t: float,
-            model_error_stds: float,
-            gamma_par: float = 1.
+    def update(
+        self,
+        dt: float,
+        sigmas: ndarray,
+        w: ndarray | None = None
     ) -> None:
-        """ Computes updated model matrices """
-        self._F[0, 1] = delta_t
-        self._F[0, 2] = delta_t**2 / 2
-        self._F[1, 2] = gamma_par * delta_t
-        self._Q[0, 0] = 1. * delta_t**5 / 20
-        self._Q[0, 1] = 1 * delta_t**4 / 8
-        self._Q[0, 2] = 1 * delta_t**3 / 6
-        self._Q[1, 1] = 1. * delta_t**3 / 3
-        self._Q[1, 2] = 1 * delta_t**2 / 2
-        self._Q[2, 2] = delta_t
-        self._Q = symmetrize(self.Q)
-        model_error_stds = np.asarray(model_error_stds)
-        assert model_error_stds.size == 1, 'Need 1 standard deviation for CA1D!'
-        self._Q *= model_error_stds**2
+        """Update system parameters"""
+        self._dt = self.float_setter(dt)
+        self._sigmas = self.float_setter(sigmas)
+        self._initiate_matrices_to_identity()
+        self._F[0, 1] = self.dt
+        self._F[0, 2] = self.dt**2 / 2
+        self._F[1, 2] = self.dt
+        fac = 1.
+        self._Q[0, 0] = fac * self.dt**5 / 20
+        self._Q[0, 1] = fac * self.dt**4 / 8
+        self._Q[0, 2] = fac * self.dt**3 / 6
+        self._Q[1, 1] = fac * self.dt**3 / 3
+        self._Q[1, 2] = fac * self.dt**2 / 2
+        self._Q[2, 2] = self.dt
+        self._Q = self.symmetrize(self.Q)
+        self._Q *= self.sigmas**2
 
 
 class ConstantAccelerationND(LinearMotionModel):
-    """ Class for constant acceleration model in N-dimension"""
+    """Class for constant acceleration model in N-dimension"""
 
     def __init__(self, dof: int):
-        super().__init__(dim=3 * dof)
+        self._dof = self.int_setter(dof)
+        super().__init__(nx=int(3 * self._dof), name=f'CA{self._dof}D')
         self._ca1d = ConstantAcceleration1D()
 
-    def compute(
+    def update(
         self,
-        delta_t: float,
-        model_error_stds: ndarray,
-        gamma_par: float = 1.
+        dt: float,
+        sigmas: ndarray,
+        w: ndarray | None = None
     ) -> None:
-        """ Computes updated model matrices """
-        model_error_stds = np.asarray(model_error_stds)
-        out_string = 'Size mismatch for error standard deviations!'
-        assert model_error_stds.size == int(self.dim / 3), out_string
-        for i, error_std in enumerate(model_error_stds):
-            self._ca1d.compute(delta_t, error_std, gamma_par=gamma_par)
+        """Update system parameters and matrices"""
+        self._dt = self.float_setter(dt)
+        self.sigmas = self.vec_setter(sigmas, self._dof)
+        self._initiate_matrices_to_identity()
+        for i, sigma in enumerate(self.sigmas):
+            self._ca1d.update(self.dt, sigma)
             self._F[i * 3:(i + 1) * 3, i * 3:(i + 1) * 3] = self._ca1d.F.copy()
             self._Q[i * 3:(i + 1) * 3, i * 3:(i + 1) * 3] = self._ca1d.Q.copy()

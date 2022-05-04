@@ -1,42 +1,46 @@
-""" Kalman filter class """
+"""Unscented Kalman Filter class"""
 from collections.abc import Sequence
 import numpy as np
 from numpy import ndarray
 from .kalman_filter_base import KalmanFilterBase
+from .unscented_transform import UnscentedTransform
 
 
-class KalmanFilter(KalmanFilterBase):
-    # pylint: disable=too-many-instance-attributes
+class UnscentedKalmanFilter(KalmanFilterBase):
     # pylint: disable=invalid-name
-    """Kalman Filter"""
+    """Unscented Kalman Filter class"""
 
     def __init__(
         self,
         nx: int,
         ny: int,
         dt: float,
-        object_id: str | int = 0
+        object_id: str | int = 0,
+        **kwargs
     ):
-        super().__init__('KF', nx, ny, dt, object_id)
+        super().__init__('UKF', nx, ny, dt, object_id)
+        self.ut = UnscentedTransform(dim=nx, **kwargs)
 
     def validate(self) -> None:
         """Check if system matrices/functions are initiated"""
         if (self._P is None) or (self._m is None):
             self._raiseit('Need to initiate state, use initiate_state()')
-        if self._H is None:
-            self._raiseit('Need to initiate H matrix!')
-        if self._F is None:
-            self._raiseit('Need to initiate F matrix!')
+        if self._h is None:
+            self._raiseit('Need to initiate measurement equation h()!')
+        if self._f is None:
+            self._raiseit('Need to initiate dynamics equation f()!')
         if self._R is None:
             self._raiseit('Need to initiate R matrix!')
         if self._Q is None:
             self._raiseit('Need to initiate Q matrix!')
 
     def forecast(self) -> None:
-        """Kalman filter forecast step"""
+        """Unscented Kalman filter forecast step"""
         self._time_elapsed += self.dt
-        self._m = np.dot(self._F, self._m)
-        self._P = np.matmul(self._F, np.matmul(self._P, self._F.T)) + self._Q
+        if self._m is None:
+            self._raiseit('Need to initiate state first!')
+        self._m, self._P, _ = self.ut.transform(self._m, self._P, self._f)
+        self._P += self._Q
         self._nis = np.nan
         self._nees = np.nan
         self._loglik = np.nan
@@ -44,18 +48,18 @@ class KalmanFilter(KalmanFilterBase):
 
     def update(self, y_obs: ndarray) -> None:
         """Kalman filter update step"""
-        y_obs = self.mat_setter(y_obs, (self._ny,))
-        y_pred = self._H @ self._m
+        y_obs = self.mat_setter(y_obs, (self._ny, ))
+        y_pred, self._S, Pxy = self.ut.transform(self._m, self._P, self._h)
         y_res = y_obs - y_pred
-        self._S = self._H @ self._P @ self._H.T + self._R
+        self._S += self._R
         S_inv = np.linalg.pinv(self._S, hermitian=True)
         self._nis = np.linalg.multi_dot([y_res.T, S_inv, y_res])
         self._loglik = -0.5 * (self._ny * np.log(2. * np.pi) +
                                np.log(np.linalg.det(self._S)) + self._nis)
-        self._K = self._P @ self._H.T @ S_inv
+        self._K = Pxy @ S_inv
         x_res = np.dot(self._K, y_res)
         self._m += x_res
-        self._P = (np.eye(self._nx) - self._K @ self._H) @ self._P
+        self._P -= self._K @ self._S @ self._K.T
         P_inv = np.linalg.pinv(self._P, hermitian=True)
         self._nees = np.linalg.multi_dot([x_res.T, P_inv, x_res])
         self._store_this_step(y_obs)

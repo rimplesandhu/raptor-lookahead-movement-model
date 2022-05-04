@@ -5,16 +5,23 @@ import math
 from numpy import ndarray
 import numpy as np
 import matplotlib as mpl
-import matplotlib.animation as animation
 import matplotlib.patches as patches
 from shapely.geometry import Point
 
 
-def animate_this_dataframe(ics, idf, ifig, iax, tlist, clr):
+def animate_this_dataframe(ics, idf, iax, clr, box_fill=True):
     """Animate this dataframe"""
     eltime = idf['time_elapsed'].values
     xloc = idf['x_coord'].copy().values
     yloc = idf['y_coord'].copy().values
+    if 'var_x_coord' in idf.columns:
+        xloc_var = idf['var_x_coord'].copy().values
+        yloc_var = idf['var_y_coord'].copy().values
+        alphas = 1. / np.sqrt(xloc_var + yloc_var)
+        alphas /= np.amax(alphas)
+        alphas = np.clip(alphas, 0.2, 1.0)
+    else:
+        alphas = None
     length = idf['length'].copy().values
     width = idf['width'].copy().values
     col_name = ['zone', 'orientation']
@@ -34,15 +41,12 @@ def animate_this_dataframe(ics, idf, ifig, iax, tlist, clr):
             ibool = [izone.contains(Point(ix, iy))
                      for ix, iy in zip(xloc, yloc)]
             angle[np.where(bool_speed & ibool)[0]] = iangle
-    return animate_this_source(ifig, iax, tlist, eltime, xloc, yloc, -angle,
-                               width, length, object_ids, clr,
-                               interval=50, repeat=False)
+    return animate_this_source(iax, eltime, xloc, yloc, -angle,
+                               width, length, object_ids, clr, box_fill, alphas)
 
 
 def animate_this_source(
-    fig,
     ax,
-    tlist: ndarray,
     etime: ndarray,
     xloc: ndarray,
     yloc: ndarray,
@@ -51,17 +55,16 @@ def animate_this_source(
     length: Union[ndarray, float] = 1.,
     object_ids: Optional[ndarray] = None,
     obj_color: str = 'r',
-    t_buffer: float = 0.001,
     box_fill: bool = True,
-    **kwargs
+    alphas: Optional[ndarray] = None
 ):
     """ Animates the data source """
-    assert etime.size == xloc.size, 'Size mismatch b/w etime and xloc!'
     assert xloc.size == yloc.size, 'Size mismatch b/w xloc and yloc!'
     boxes = []
     texts = []
-    small_width = 2.5
+    small_width = 2.0
     max_num_of_objects = 100
+    t_buffer = 0.001,
     if yaw is not None:
         yaw = yaw.ravel() if yaw.ndim == 1 else yaw
         width = width * \
@@ -73,8 +76,8 @@ def animate_this_source(
         assert width.size == length.size, 'Size mismatch b/w locs and width!'
         for _ in range(max_num_of_objects):
             ibox = patches.FancyBboxPatch((0, 0), 0., 0., fill=box_fill,
-                                          ec=None, fc=obj_color,
-                                          alpha=0.8, lw=0.,
+                                          ec=obj_color, fc=obj_color,
+                                          alpha=0.8, lw=0.75,
                                           boxstyle='round',
                                           linewidth=0.9)
             ax.add_patch(ibox)
@@ -121,18 +124,35 @@ def animate_this_source(
                     rot_this = mpl.transforms.Affine2D().rotate_deg_around(
                         coords[0], coords[1], 0.)
                     boxes[i].set_transform(rot_start + rot_this)
+                if alphas is not None:
+                    boxes[i].set_alpha(alphas[indx])
                 if object_ids is not None:
                     obj_id = object_ids[indx]
                     texts[i].set_text(str(obj_id))
                     texts[i].set_x(xloc[indx])
                     texts[i].set_y(yloc[indx])
             for j in range(len(inds), max_num_of_objects):
-                #boxes[j].set_boxstyle('round', pad=0)
+                # boxes[j].set_boxstyle('round', pad=0)
                 boxes[j].set_x(0.)
                 boxes[j].set_y(0.)
                 boxes[j].set_width(0.)
                 boxes[j].set_height(0.)
+                if alphas is not None:
+                    boxes[j].set_alpha(0.)
                 if object_ids is not None:
                     texts[j].set_text('')
         return points_plot, boxes,
-    return animation.FuncAnimation(fig, animate_func, tlist, **kwargs)
+    return animate_func
+
+
+def merge_animation_functions(list_of_funcs):
+    """Merge multiple animate functions into one"""
+    def animate(itime):
+        points_list = []
+        boxes_list = []
+        for ifunc in list_of_funcs:
+            points, boxes = ifunc(itime)
+            points_list.append(points)
+            boxes_list.append(boxes)
+        return points_list, boxes_list,
+    return animate

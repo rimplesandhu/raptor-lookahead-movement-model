@@ -2,8 +2,7 @@
 
 import numpy as np
 from numpy import ndarray
-from bayesfilt.linear_motion_models import *
-from bayesfilt.linear_measurement_models import *
+from .linear_motion_models import LinearMotionModel
 
 
 class LinearModelA(LinearMotionModel):
@@ -30,35 +29,3 @@ class LinearModelA(LinearMotionModel):
                             [upper_zeromat.T, self._rw3d.F.copy()]])
         self._Q = np.block([[self._cv2d.Q.copy(), upper_zeromat],
                             [upper_zeromat.T, self._rw3d.Q.copy()]])
-
-
-class LinearModelAandRadar(LinearObservationModel):
-    """Measurement model when using CV2DShape2D motion model and Radar
-    measurements"""
-
-    def __init__(self):
-        super().__init__(state_dim=6, obs_dim=6,
-                         obs_states=[0, 1, 2, 3, 4, 5])
-
-    def compute(self, obs_error_stds: ndarray) -> None:
-        """ Computes updated model matrices """
-        obs_error_stds = np.atleast_1d(obs_error_stds)
-        err_string = f'Number of error stds should be {self._obs_dim}!'
-        assert obs_error_stds.size == self._obs_dim, err_string
-        np.fill_diagonal(self._R, obs_error_stds**2)
-
-
-class LinearModelAandLidar(LinearObservationModel):
-    """Measurement model when using CV2DShape2D motion model and Radar
-    measurements"""
-
-    def __init__(self):
-        super().__init__(state_dim=6, obs_dim=6,
-                         obs_states=[0, 1, 2, 3, 4, 5])
-
-    def compute(self, obs_error_stds: ndarray) -> None:
-        """ Computes updated model matrices """
-        obs_error_stds = np.atleast_1d(obs_error_stds)
-        err_string = f'Number of error stds should be {self._obs_dim}!'
-        assert obs_error_stds.size == self._obs_dim, err_string
-        np.fill_diagonal(self._R, obs_error_stds**2)
