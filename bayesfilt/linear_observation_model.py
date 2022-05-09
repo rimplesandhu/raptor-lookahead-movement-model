@@ -1,5 +1,4 @@
 """Classes for defining linear observation models """
-from abc import abstractmethod
 import numpy as np
 from numpy import ndarray
 from .observation_model import ObservationModel
@@ -33,7 +32,7 @@ class LinearObservationModel(ObservationModel):
             self._R = self.mat_setter(R, (self.ny, self.ny))
         else:
             self._sigmas = self.vec_setter(sigmas, self.ny)
-            self._R = np.diag(self._sigmas**2)
+            self._R = np.diag(self.sigmas**2)
         self._J = np.eye(self.ny)
 
     def h(
@@ -49,26 +48,18 @@ class LinearObservationModel(ObservationModel):
             out_y += r
         return out_y
 
-    def get_H(
+    def compute_H(
         self,
-        x: ndarray | None,
-        r: ndarray | None
+        x: ndarray | None = None,
+        r: ndarray | None = None
     ) -> ndarray:
         """Get H matrix"""
         return self.H
 
-    def get_J(
+    def compute_J(
         self,
-        x: ndarray | None,
-        r: ndarray | None
+        x: ndarray | None = None,
+        r: ndarray | None = None
     ) -> ndarray:
         """Get J matrix"""
         return self.J
-
-    def get_R(
-        self,
-        x: ndarray | None,
-        r: ndarray | None
-    ) -> ndarray:
-        """Get R matrix"""
-        return self._R

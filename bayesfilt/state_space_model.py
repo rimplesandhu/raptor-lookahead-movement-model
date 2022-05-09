@@ -1,5 +1,5 @@
 """Base class for defining motion models"""
-from abc import ABC
+from abc import ABC, abstractmethod
 import numpy as np
 from numpy import ndarray
 
@@ -18,8 +18,8 @@ class StateSpaceModel(ABC):
         self._w: ndarray | None = None  # static model parameters
         self._sigmas: ndarray | None = None  # error parameters
 
-    @classmethod
-    def symmetrize(cls, a_mat: ndarray) -> ndarray:
+    @staticmethod
+    def symmetrize(a_mat: ndarray) -> ndarray:
         """Return a symmetrized version of NumPy array"""
         return a_mat + a_mat.T - np.diag(a_mat.diagonal())
 
@@ -76,3 +76,8 @@ class StateSpaceModel(ABC):
     def nx(self) -> int:
         """Getter for state dimension"""
         return self._nx
+
+    @property
+    @abstractmethod
+    def labels(self) -> int:
+        """Getter for labels"""

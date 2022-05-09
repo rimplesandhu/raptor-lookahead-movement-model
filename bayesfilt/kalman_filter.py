@@ -1,7 +1,5 @@
-""" Kalman filter class """
-from collections.abc import Sequence
+"""Kalman filter class"""
 import numpy as np
-from numpy import ndarray
 from .kalman_filter_base import KalmanFilterBase
 
 
@@ -15,125 +13,70 @@ class KalmanFilter(KalmanFilterBase):
         nx: int,
         ny: int,
         dt: float,
-        object_id: str | int = 0
+        object_id: str | int = 0,
+        dt_tol: float = 0.001
     ):
-        super().__init__('KF', nx, ny, dt, object_id)
+        super().__init__(nx, ny, dt, object_id, dt_tol)
+        self.name = 'KF'
+        self.G = np.eye(self.nx)
+        self.J = np.eye(self.ny)
 
     def validate(self) -> None:
         """Check if system matrices/functions are initiated"""
-        if (self._P is None) or (self._m is None):
-            self._raiseit('Need to initiate state, use initiate_state()')
-        if self._H is None:
-            self._raiseit('Need to initiate H matrix!')
-        if self._F is None:
-            self._raiseit('Need to initiate F matrix!')
-        if self._R is None:
-            self._raiseit('Need to initiate R matrix!')
-        if self._Q is None:
-            self._raiseit('Need to initiate Q matrix!')
+        super().validate()
+        if self.H is None:
+            self.raiseit('Need to initiate H matrix!')
+        if self.F is None:
+            self.raiseit('Need to initiate F matrix!')
+        if self.Q is None:
+            self.raiseit('Need to initiate Q matrix!')
 
     def forecast(self) -> None:
         """Kalman filter forecast step"""
-        self._time_elapsed += self.dt
-        self._m = np.dot(self._F, self._m)
-        self._P = np.matmul(self._F, np.matmul(self._P, self._F.T)) + self._Q
-        self._nis = np.nan
-        self._nees = np.nan
-        self._loglik = np.nan
+        super().forecast()
+        self._m = self.F @ self.m
+        self._P = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
         self._store_this_step()
 
-    def update(self, y_obs: ndarray) -> None:
+    def update(self) -> None:
         """Kalman filter update step"""
-        y_obs = self.mat_setter(y_obs, (self._ny,))
-        y_pred = self._H @ self._m
-        y_res = y_obs - y_pred
-        self._S = self._H @ self._P @ self._H.T + self._R
-        S_inv = np.linalg.pinv(self._S, hermitian=True)
-        self._nis = np.linalg.multi_dot([y_res.T, S_inv, y_res])
-        self._loglik = -0.5 * (self._ny * np.log(2. * np.pi) +
-                               np.log(np.linalg.det(self._S)) + self._nis)
-        self._K = self._P @ self._H.T @ S_inv
-        x_res = np.dot(self._K, y_res)
+        y_pred = self.H @ self.m
+        self._S = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
+        S_inv = np.linalg.pinv(self.S, hermitian=True)
+        y_res = self.obs - y_pred
+        self._K = self.P @ self.H.T @ S_inv
+        x_res = self.K @ y_res
         self._m += x_res
-        self._P = (np.eye(self._nx) - self._K @ self._H) @ self._P
-        P_inv = np.linalg.pinv(self._P, hermitian=True)
+        self._P = (np.eye(self.nx) - self.K @ self.H) @ self.P
+        self._nis = np.linalg.multi_dot([y_res.T, S_inv, y_res])
+        self._loglik = -0.5 * (self.ny * np.log(2. * np.pi) +
+                               np.log(np.linalg.det(self.S)) + self.nis)
+        P_inv = np.linalg.pinv(self.P, hermitian=True)
+        if self.truth is not None:
+            x_res = self.m - self.truth
         self._nees = np.linalg.multi_dot([x_res.T, P_inv, x_res])
-        self._store_this_step(y_obs)
+        self._store_this_step(update=True)
 
-    def filter(
-        self,
-        tvec: ndarray,
-        list_of_yobs: Sequence[ndarray],
-        list_of_rmat: Sequence[ndarray] | None = None,
-        dt_tol: float = 0.001
-    ) -> None:
-        """Run filtering assuming F, H, Q matrices are time invariant"""
-        self.validate()
-        tvec = np.asarray(tvec)
-        assert tvec.ndim == 1, f'Wrong time series shape {tvec.shape}'
-        assert len(list_of_yobs) == tvec.size, 'Size mismatch: time vs yvec'
-        if list_of_rmat is not None:
-            assert len(list_of_rmat) == tvec.size, 'Size mismatch:time vs rmat'
-        k = 0
-        while k < tvec.size:
-            if self._time_elapsed - tvec[k] > dt_tol:
-                self._raiseit(f'Skipping observation, lower the dt={self.dt}!')
-            if abs(self._time_elapsed - tvec[k]) < dt_tol:
-                if list_of_rmat is not None:
-                    assert len(
-                        list_of_rmat) == tvec.size, 'Size mismatch: time vs rmat'
-                    self._R = list_of_rmat[k]
-                self.update(list_of_yobs[k])
-                k += 1
+    def backward_update(self):
+        """Backward filter"""
+        smean_next = self.history_smoother['state_mean'][-1].copy()
+        scov_next = self.history_smoother['state_cov'][-1].copy()
+        fcov = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
+        fcov_inv = np.linalg.pinv(fcov, hermitian=True)
+        gmat = self.P @ self.F.T @ fcov_inv
+        self._m += gmat @ (smean_next - self.F @ self.m)
+        self._P += gmat @ (scov_next - fcov) @ gmat.T
+        if self.obs is not None:
+            yres = self.obs - self.H @ self.m
+            self._S = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
+            Smat_inv = np.linalg.pinv(self.S, hermitian=True)
+            self._nis = np.linalg.multi_dot([yres.T, Smat_inv, yres])
+            self._loglik = -0.5 * (self.ny * np.log(2. * np.pi) +
+                                   np.log(np.linalg.det(self.S)) + self.nis)
+            if self.truth is not None:
+                xres = self.m - self.truth
             else:
-                self.forecast()
-        # for k, v in self.metrics.items():
-        #     print(f'Filter: {k} = {np.around(v,3)}')
-
-    def smoother(self):
-        # pylint: disable=too-many-locals
-        """Run smoothing assuming model/measurement eq are time invariant"""
-        nsteps = len(self._history['time'])
-        if nsteps < 1:
-            self._raiseit('No filter history found, run filter first!')
-        self._erase_history_smoother()
-        for i in reversed(range(nsteps)):
-            time = self._history['time'][i]
-            if i == nsteps - 1:
-                smean = self._history['state_mean'][i]
-                scov = self._history['state_cov'][i]
-            else:
-                umean = self._history['state_mean'][i]
-                ucov = self._history['state_cov'][i]
-                fcov = self._F @ ucov @ self._F.T + self._Q
-                fcov_inv = np.linalg.pinv(fcov, hermitian=True)
-                gmat = ucov @ self._F.T @ fcov_inv
-                smean = umean + gmat @ (smean - self._F @ umean)
-                scov = ucov + gmat @ (scov - fcov) @ gmat.T
-            yobs = self._history['obs'][i]
-            rmat = self._history['rmat'][i]
-            nis = np.nan
-            nees = np.nan
-            if yobs is not None:
-                yres = yobs - self._H @ smean
-                Smat = self._H @ scov @ self._H.T + rmat
-                Smat_inv = np.linalg.pinv(Smat, hermitian=True)
-                nis = np.linalg.multi_dot([yres.T, Smat_inv, yres])
-                loglik = -0.5 * (self._ny * np.log(2. * np.pi) +
-                                 np.log(np.linalg.det(Smat)) + nis)
-                Kmat = scov @ self._H.T @ Smat_inv
+                Kmat = self.P @ self.H.T @ Smat_inv
                 xres = np.dot(Kmat, yres)
-                scov_inv = np.linalg.pinv(scov, hermitian=True)
-                nees = np.linalg.multi_dot([xres.T, scov_inv, xres])
-            self._history_smoother['time'].append(time)
-            self._history_smoother['obs'].append(yobs)
-            self._history_smoother['state_mean'].append(smean)
-            self._history_smoother['state_cov'].append(scov)
-            self._history_smoother['nees'].append(nees)
-            self._history_smoother['nis'].append(nis)
-            self._history_smoother['loglik'].append(loglik)
-            self._history_smoother['rmat'].append(rmat)
-        for v in self._history_smoother.values():
-            v.reverse()
-        # for k, v in self.metrics_smoother.items():
-        #     print(f'Smoother: {k} = {np.around(v,3)}')
+            scov_inv = np.linalg.pinv(self.P, hermitian=True)
+            self._nees = np.linalg.multi_dot([xres.T, scov_inv, xres])

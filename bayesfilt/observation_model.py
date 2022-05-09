@@ -51,7 +51,7 @@ class ObservationModel(StateSpaceModel):
         """Measurement equation"""
 
     @abstractmethod
-    def get_H(
+    def compute_H(
         self,
         x: ndarray | None,
         r: ndarray | None
@@ -59,20 +59,12 @@ class ObservationModel(StateSpaceModel):
         """Get H matrix"""
 
     @abstractmethod
-    def get_J(
+    def compute_J(
         self,
         x: ndarray | None,
         r: ndarray | None
     ) -> ndarray:
         """Get J matrix"""
-
-    @abstractmethod
-    def get_R(
-        self,
-        x: ndarray | None,
-        r: ndarray | None
-    ) -> ndarray:
-        """Get R matrix"""
 
     @property
     def ny(self) -> int:

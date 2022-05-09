@@ -30,29 +30,29 @@ class LinearMotionModel(MotionModel):
             out_x += u
         return out_x
 
-    def get_F(
+    def compute_F(
         self,
-        x: ndarray | None,
-        q: ndarray | None
+        x: ndarray | None = None,
+        q: ndarray | None = None
     ) -> ndarray:
         """Get F matrix"""
-        return self._F
+        return self.F
 
-    def get_G(
+    def compute_G(
         self,
-        x: ndarray | None,
-        q: ndarray | None
+        x: ndarray | None = None,
+        q: ndarray | None = None
     ) -> ndarray:
         """Get G matrix"""
-        return self._G
+        return self.G
 
-    def get_Q(
+    def compute_Q(
         self,
-        x: ndarray | None,
-        q: ndarray | None
+        x: ndarray | None = None,
+        q: ndarray | None = None
     ) -> ndarray:
         """Get Q matrix"""
-        return self._Q
+        return self.Q
 
     @property
     def dof(self) -> int:
@@ -96,7 +96,7 @@ class RandomWalkND(LinearMotionModel):
     ) -> None:
         """Update system parameters"""
         self._dt = self.float_setter(dt)
-        self.sigmas = self.vec_setter(sigmas, self._dof)
+        self._sigmas = self.vec_setter(sigmas, self._dof)
         self._initiate_matrices_to_identity()
         for i, sigma in enumerate(self.sigmas):
             self._rw1d.update(self.dt, sigma)
@@ -125,7 +125,7 @@ class ConstantVelocity1D(LinearMotionModel):
         self._Q[0, 0] = 1. * self.dt**3 / 3
         self._Q[0, 1] = 1. * self.dt**2 / 2
         self._Q[1, 1] = self.dt
-        self._Q = self.symmetrize(self._Q)
+        self._Q = self.symmetrize(self.Q)
         self._Q *= self.sigmas**2
 
 
@@ -145,7 +145,7 @@ class ConstantVelocityND(LinearMotionModel):
     ) -> None:
         """Update system parameters"""
         self._dt = self.float_setter(dt)
-        self.sigmas = self.vec_setter(sigmas, self._dof)
+        self._sigmas = self.vec_setter(sigmas, self._dof)
         self._initiate_matrices_to_identity()
         for i, sigma in enumerate(self.sigmas):
             self._cv1d.update(self.dt, sigma)
@@ -200,7 +200,7 @@ class ConstantAccelerationND(LinearMotionModel):
     ) -> None:
         """Update system parameters and matrices"""
         self._dt = self.float_setter(dt)
-        self.sigmas = self.vec_setter(sigmas, self._dof)
+        self._sigmas = self.vec_setter(sigmas, self._dof)
         self._initiate_matrices_to_identity()
         for i, sigma in enumerate(self.sigmas):
             self._ca1d.update(self.dt, sigma)

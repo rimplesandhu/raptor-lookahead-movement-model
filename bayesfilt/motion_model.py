@@ -18,8 +18,9 @@ class MotionModel(StateSpaceModel):
 
         # model parameters
         super().__init__(nx=nx, name=name)
-        self._nq = self.nx if nq is None else int(nq)  # dim of error vector
+        self._nq = self.nx if nq is None else self.int_setter(nq)
         self._dt: float  # time interval
+        self._qbar = np.zeros((self.nq))
 
         # model matrices
         self._F: ndarray | None = None  # State transition matrix
@@ -39,13 +40,13 @@ class MotionModel(StateSpaceModel):
     def f(
         self,
         x: ndarray,
-        q: ndarray | None = None,
-        u: ndarray | None = None
+        q: ndarray | None,
+        u: ndarray | None
     ) -> ndarray:
         """Model dynamics equation"""
 
     @abstractmethod
-    def get_F(
+    def compute_F(
         self,
         x: ndarray | None,
         q: ndarray | None
@@ -53,7 +54,7 @@ class MotionModel(StateSpaceModel):
         """Get F matrix"""
 
     @abstractmethod
-    def get_G(
+    def compute_G(
         self,
         x: ndarray | None,
         q: ndarray | None
@@ -61,7 +62,7 @@ class MotionModel(StateSpaceModel):
         """Get G matrix"""
 
     @abstractmethod
-    def get_Q(
+    def compute_Q(
         self,
         x: ndarray | None,
         q: ndarray | None
@@ -74,7 +75,7 @@ class MotionModel(StateSpaceModel):
         return self._nq
 
     @property
-    def dt(self) -> int:
+    def dt(self) -> float:
         """Getter for time interval"""
         return self._dt
 
@@ -86,12 +87,22 @@ class MotionModel(StateSpaceModel):
     @property
     def G(self) -> ndarray:
         """Getter for error jacobian matrix G"""
-        return self._Q
+        return self._G
 
     @property
     def Q(self) -> ndarray:
         """Getter for error covariance matrix Q"""
         return self._Q
+
+    @property
+    def qbar(self) -> ndarray:
+        """Getter for error mean qbar"""
+        return self._qbar
+
+    @qbar.setter
+    def qbar(self, in_val) -> ndarray:
+        """Setter for error mean qbar"""
+        self._qbar = self.vec_setter(in_val, self.nq)
 
     def _initiate_matrices_to_identity(self):
         """Initiate all matrices to identity"""
@@ -109,7 +120,7 @@ class MotionModel(StateSpaceModel):
         out_str = f':::{self.name}\n'
         out_str += f'State Dimension: {self._nx}\n'
         out_str += f'Error Dimension: {self._nq}\n'
-        out_str += f'F:\n {np.array_str(np.array(self._F), precision=3)}\n'
-        out_str += f'G:\n {np.array_str(np.array(self._G), precision=3)}\n'
-        out_str += f'Q:\n {np.array_str(np.array(self._Q), precision=3)}\n'
+        out_str += f'F:\n {np.array_str(np.array(self.F), precision=3)}\n'
+        out_str += f'G:\n {np.array_str(np.array(self.G), precision=3)}\n'
+        out_str += f'Q:\n {np.array_str(np.array(self.Q), precision=3)}\n'
         return out_str
