@@ -13,13 +13,10 @@ class KalmanFilter(KalmanFilterBase):
         nx: int,
         ny: int,
         dt: float,
-        object_id: str | int = 0,
-        dt_tol: float = 0.001
+        object_id: str | int = 0
     ):
-        super().__init__(nx, ny, dt, object_id, dt_tol)
+        super().__init__(nx, ny, dt, object_id)
         self.name = 'KF'
-        self.G = np.eye(self.nx)
-        self.J = np.eye(self.ny)
 
     def validate(self) -> None:
         """Check if system matrices/functions are initiated"""
@@ -41,42 +38,32 @@ class KalmanFilter(KalmanFilterBase):
     def update(self) -> None:
         """Kalman filter update step"""
         y_pred = self.H @ self.m
-        self._S = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
-        S_inv = np.linalg.pinv(self.S, hermitian=True)
-        y_res = self.obs - y_pred
-        self._K = self.P @ self.H.T @ S_inv
-        x_res = self.K @ y_res
+        Smat = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
+        Smat_inv = np.linalg.pinv(Smat, hermitian=True)
+        y_res = y_res = self.residual(self.obs, y_pred)
+        Kmat = self.P @ self.H.T @ Smat_inv
+        x_res = Kmat @ y_res
         self._m += x_res
-        self._P = (np.eye(self.nx) - self.K @ self.H) @ self.P
-        self._nis = np.linalg.multi_dot([y_res.T, S_inv, y_res])
-        self._loglik = -0.5 * (self.ny * np.log(2. * np.pi) +
-                               np.log(np.linalg.det(self.S)) + self.nis)
-        P_inv = np.linalg.pinv(self.P, hermitian=True)
-        if self.truth is not None:
-            x_res = self.m - self.truth
-        self._nees = np.linalg.multi_dot([x_res.T, P_inv, x_res])
+        self._P = (np.eye(self.nx) - Kmat @ self.H) @ self.P
+        #self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
+        Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
+        self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
         self._store_this_step(update=True)
 
-    def backward_update(self):
+    def _backward_filter(self):
         """Backward filter"""
-        smean_next = self.history_smoother['state_mean'][-1].copy()
-        scov_next = self.history_smoother['state_cov'][-1].copy()
+        smean_next = self.history['smoother_mean'][-1]
+        scov_next = self.history['smoother_cov'][-1]
         fcov = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
         fcov_inv = np.linalg.pinv(fcov, hermitian=True)
         gmat = self.P @ self.F.T @ fcov_inv
         self._m += gmat @ (smean_next - self.F @ self.m)
         self._P += gmat @ (scov_next - fcov) @ gmat.T
         if self.obs is not None:
-            yres = self.obs - self.H @ self.m
-            self._S = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
-            Smat_inv = np.linalg.pinv(self.S, hermitian=True)
-            self._nis = np.linalg.multi_dot([yres.T, Smat_inv, yres])
-            self._loglik = -0.5 * (self.ny * np.log(2. * np.pi) +
-                                   np.log(np.linalg.det(self.S)) + self.nis)
-            if self.truth is not None:
-                xres = self.m - self.truth
-            else:
-                Kmat = self.P @ self.H.T @ Smat_inv
-                xres = np.dot(Kmat, yres)
-            scov_inv = np.linalg.pinv(self.P, hermitian=True)
-            self._nees = np.linalg.multi_dot([xres.T, scov_inv, xres])
+            y_res = self.obs - self.H @ self.m
+            Smat = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
+            Smat_inv = np.linalg.pinv(Smat, hermitian=True)
+            Kmat = self.P @ self.H.T @ Smat_inv
+            x_res = np.dot(Kmat, y_res)
+            Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
+            self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)

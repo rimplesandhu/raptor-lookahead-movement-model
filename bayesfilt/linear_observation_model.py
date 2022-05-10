@@ -19,7 +19,7 @@ class LinearObservationModel(ObservationModel):
                          observed=observed)
         self._H: ndarray = np.zeros((self._ny, self._nx))  # obs function
         for k, v in self.observed.items():
-            self._H[int(k), int(v)] = 1.
+            self._H[int(v), int(k)] = 1.
 
     def update(
         self,

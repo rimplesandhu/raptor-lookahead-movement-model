@@ -19,9 +19,12 @@ class StateSpaceModel(ABC):
         self._sigmas: ndarray | None = None  # error parameters
 
     @staticmethod
-    def symmetrize(a_mat: ndarray) -> ndarray:
+    def symmetrize(in_mat: ndarray) -> ndarray:
         """Return a symmetrized version of NumPy array"""
-        return a_mat + a_mat.T - np.diag(a_mat.diagonal())
+        if np.any(np.isnan(in_mat)) or np.any(in_mat.diagonal() < 0.):
+            print('\np update went wrong!')
+            print(in_mat.diagonal())
+        return (in_mat + in_mat.T) / 2.
 
     def mat_setter(self, in_mat, to_shape=None) -> ndarray:
         """Returns a valid numpy array2d while checking for its shape"""
@@ -76,8 +79,3 @@ class StateSpaceModel(ABC):
     def nx(self) -> int:
         """Getter for state dimension"""
         return self._nx
-
-    @property
-    @abstractmethod
-    def labels(self) -> int:
-        """Getter for labels"""

@@ -12,6 +12,12 @@ class CTRA(MotionModel):
     def __init__(self):
         super().__init__(nx=6, nq=6, name='CTRA')
 
+    @property
+    def labels(self) -> int:
+        """Getter for labels"""
+        return ['Position X', 'Position Y', 'Heading', 'Speed',
+                'Angular speed', 'Acceleration']
+
     def f(
         self,
         x: ndarray,

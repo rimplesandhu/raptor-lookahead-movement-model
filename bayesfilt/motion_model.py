@@ -70,6 +70,11 @@ class MotionModel(StateSpaceModel):
         """Get Q matrix"""
 
     @property
+    def labels(self) -> int:
+        """Getter for labels"""
+        return [f'x_{i}' for i in range(self.nx)]
+
+    @property
     def nq(self) -> int:
         """Getter for error dimension"""
         return self._nq

@@ -21,6 +21,7 @@ class ObservationModel(StateSpaceModel):
         super().__init__(nx=nx, name=name)
         self._ny = self.int_setter(ny)  # dim of obs vector
         self._observed = observed  # obs-state indices pair
+        self.labels = [f'y_{i}' for i in range(self.nx)]
 
         # model matrices
         self._H: ndarray | None = None  # Observation-State matrix
@@ -28,9 +29,9 @@ class ObservationModel(StateSpaceModel):
         self._R: ndarray | None = None  # Error covariance matrix
 
         if self.observed is not None:
-            if max(self.observed.values()) >= self.nx:
+            if max(self.observed.keys()) >= self.nx:
                 self.raiseit(f'Max state index cannot exceed {self.nx-1}')
-            if max(self.observed.keys()) >= self.ny:
+            if max(self.observed.values()) >= self.ny:
                 self.raiseit(f'Max obs index cannot exceed {self.ny-1}')
 
     @abstractmethod
