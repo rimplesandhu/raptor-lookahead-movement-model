@@ -110,6 +110,7 @@ class ConstantVelocity1D(LinearMotionModel):
     def __init__(self):
         super().__init__(nx=2, name='CV1D')
         self._dof = 1
+        self.labels = ['Position X', 'Speed X']
 
     def update(
         self,
@@ -136,6 +137,7 @@ class ConstantVelocityND(LinearMotionModel):
         self._dof = self.int_setter(dof)
         super().__init__(nx=int(2 * self._dof), name=f'CV{self._dof}D')
         self._cv1d = ConstantVelocity1D()
+        self._labels = []
 
     def update(
         self,
@@ -151,6 +153,7 @@ class ConstantVelocityND(LinearMotionModel):
             self._cv1d.update(self.dt, sigma)
             self._F[i * 2:(i + 1) * 2, i * 2:(i + 1) * 2] = self._cv1d.F.copy()
             self._Q[i * 2:(i + 1) * 2, i * 2:(i + 1) * 2] = self._cv1d.Q.copy()
+            self._labels += [istr + str(i + 1) for istr in self._cv1d.labels]
 
 
 class ConstantAcceleration1D(LinearMotionModel):
@@ -159,6 +162,7 @@ class ConstantAcceleration1D(LinearMotionModel):
     def __init__(self):
         super().__init__(nx=3, name='CA1D')
         self._dof = 1
+        self.labels = ['Position X', 'Speed X', 'Acceleration X']
 
     def update(
         self,
@@ -191,6 +195,7 @@ class ConstantAccelerationND(LinearMotionModel):
         self._dof = self.int_setter(dof)
         super().__init__(nx=int(3 * self._dof), name=f'CA{self._dof}D')
         self._ca1d = ConstantAcceleration1D()
+        self._labels = []
 
     def update(
         self,
@@ -206,3 +211,4 @@ class ConstantAccelerationND(LinearMotionModel):
             self._ca1d.update(self.dt, sigma)
             self._F[i * 3:(i + 1) * 3, i * 3:(i + 1) * 3] = self._ca1d.F.copy()
             self._Q[i * 3:(i + 1) * 3, i * 3:(i + 1) * 3] = self._ca1d.Q.copy()
+            self._labels += [istr + str(i + 1) for istr in self._ca1d.labels]

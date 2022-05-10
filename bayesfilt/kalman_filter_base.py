@@ -442,7 +442,7 @@ class KalmanFilterBase(ABC):
         """Setter for labels"""
         if len(in_val) != self.nx:
             self.raiseit(f'Number of labels should be {self.nx}')
-        self._labels = [str[ix] for ix in in_val]
+        self._labels = [ix for ix in in_val]
 
 
 ### Getter/Setter for matrices of dynamics model###

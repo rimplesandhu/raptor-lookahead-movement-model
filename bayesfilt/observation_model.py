@@ -21,7 +21,7 @@ class ObservationModel(StateSpaceModel):
         super().__init__(nx=nx, name=name)
         self._ny = self.int_setter(ny)  # dim of obs vector
         self._observed = observed  # obs-state indices pair
-        self.labels = [f'y_{i}' for i in range(self.nx)]
+        self._labels = [f'y_{i}' for i in range(self.nx)]
 
         # model matrices
         self._H: ndarray | None = None  # Observation-State matrix
@@ -91,6 +91,18 @@ class ObservationModel(StateSpaceModel):
     def R(self) -> ndarray:
         """Measurement error covariance matrix"""
         return self._R
+
+    @property
+    def labels(self) -> list[str]:
+        """Getter for labels"""
+        return self._labels
+
+    @labels.setter
+    def labels(self, in_list) -> None:
+        """Setter for labels"""
+        if len(in_list) != self.nx:
+            self.raiseit(f'Number of labels should be {self.nx}')
+        self._labels = in_list
 
     def __str__(self):
         out_str = f':::{self.name}\n'

@@ -26,6 +26,7 @@ class MotionModel(StateSpaceModel):
         self._F: ndarray | None = None  # State transition matrix
         self._G: ndarray | None = None  # Error Jacobian matrix
         self._Q: ndarray | None = None  # Error covariance matrix
+        self._labels = [f'x_{i}' for i in range(self.nx)]
 
     @abstractmethod
     def update(
@@ -70,11 +71,6 @@ class MotionModel(StateSpaceModel):
         """Get Q matrix"""
 
     @property
-    def labels(self) -> int:
-        """Getter for labels"""
-        return [f'x_{i}' for i in range(self.nx)]
-
-    @property
     def nq(self) -> int:
         """Getter for error dimension"""
         return self._nq
@@ -105,9 +101,21 @@ class MotionModel(StateSpaceModel):
         return self._qbar
 
     @qbar.setter
-    def qbar(self, in_val) -> ndarray:
+    def qbar(self, in_val) -> None:
         """Setter for error mean qbar"""
         self._qbar = self.vec_setter(in_val, self.nq)
+
+    @property
+    def labels(self) -> list[str]:
+        """Getter for labels"""
+        return self._labels
+
+    @labels.setter
+    def labels(self, in_list) -> None:
+        """Setter for labels"""
+        if len(in_list) != self.nx:
+            self.raiseit(f'Number of labels should be {self.nx}')
+        self._labels = in_list
 
     def _initiate_matrices_to_identity(self):
         """Initiate all matrices to identity"""
