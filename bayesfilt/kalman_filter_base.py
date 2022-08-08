@@ -6,6 +6,7 @@ import numpy as np
 from numpy import ndarray
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
 
 
 class KalmanFilterBase(ABC):
@@ -57,7 +58,11 @@ class KalmanFilterBase(ABC):
         self.compute_H: Callable | None = None
         self.compute_J: Callable | None = None
         self.compute_R: Callable | None = None
-        self.residual: Callable = np.subtract
+        self.x_add: Callable = np.add
+        self.x_subtract: Callable = np.subtract
+        self.y_subtract: Callable = np.subtract
+        self.x_mean_fn: Callable | None = None
+        self.y_mean_fn: Callable | None = None
 
         # Kalman filtering parameters
         self._Sinv: ndarray
@@ -69,8 +74,8 @@ class KalmanFilterBase(ABC):
         self._labels: Sequence[str] = [f'x_{i}' for i in range(self._nx)]
 
         # saving history of filter and smoother
-        varnames = ['time_elapsed', 'observation', 'truth', 'observation_cov',
-                    'mean', 'cov', 'nees', 'nis', 'loglik']
+        varnames = ['TimeElapsed', 'observation', 'truth', 'observation_cov',
+                    'mean', 'cov', 'NEES', 'NIS', 'LogLik']
         self._history = {}
         for varname in varnames:
             self._history[varname] = []
@@ -119,14 +124,15 @@ class KalmanFilterBase(ABC):
         # check if inputs are valid
         nsteps = len(list_of_time)
         if len(list_of_obs) != nsteps:
-            self.raiseit('Length mismatch: time vs list of observations')
+            print('Length mismatch!')
+            self.raiseit(f'time:{nsteps} vs observations: {len(list_of_obs)}')
         if list_of_R is not None:
             if len(list_of_R) != nsteps:
                 self.raiseit('Length mismatch: time vs list of R matrices')
         if list_of_truth is not None:
             if len(list_of_truth) != nsteps:
                 self.raiseit('Size mismatch: time vs list of state truths')
-        if len(self._history['time_elapsed']) > 1:
+        if len(self._history['TimeElapsed']) > 1:
             self.raiseit('Need to initiate state!')
 
         # run the forward filter
@@ -142,14 +148,17 @@ class KalmanFilterBase(ABC):
                 k += 1
             else:
                 self.forecast()
+            if np.any(np.linalg.eigvals(self.P) < 0):
+                print('Exiting because covariance is not pos def!')
+                break
 
     def smoother(self):
         """Run smoothing assuming model/measurement eq are time invariant"""
-        nsteps = len(self.history['time_elapsed'])
+        nsteps = len(self.history['TimeElapsed'])
         if nsteps < 1:
             self.raiseit('No state history found, run filter first!')
         cnames = ['smoother_mean', 'smoother_cov',
-                  'smoother_nees', 'smoother_nis', 'smoother_loglik']
+                  'SmootherNEES', 'SmootherNIS', 'SmootherLogLik']
         for cname in cnames:
             self._history[cname] = []
         for i in reversed(range(nsteps)):
@@ -162,9 +171,9 @@ class KalmanFilterBase(ABC):
                 self._backward_filter()
             self._history['smoother_mean'].append(deepcopy(self.m))
             self._history['smoother_cov'].append(deepcopy(self.P))
-            self._history['smoother_nees'].append(self.nees)
-            self._history['smoother_nis'].append(self.nis)
-            self._history['smoother_loglik'].append(self.loglik)
+            self._history['SmootherNEES'].append(self.nees)
+            self._history['SmootherNIS'].append(self.nis)
+            self._history['SmootherLogLik'].append(self.loglik)
         for k, v in self._history.items():
             if k.startswith('smoother_'):
                 v.reverse()
@@ -177,15 +186,15 @@ class KalmanFilterBase(ABC):
                 if not k.startswith('smoother_'):
                     del v[-1]
             self._last_update_at = self.time_elapsed
-        self._history['time_elapsed'].append(self.time_elapsed)
+        self._history['TimeElapsed'].append(self.time_elapsed)
         self._history['observation'].append(self.obs)
         self._history['truth'].append(self.truth)
         self._history['observation_cov'].append(self.R)
         self._history['mean'].append(deepcopy(self.m))
         self._history['cov'].append(deepcopy(self.P))
-        self._history['nees'].append(self.nees)
-        self._history['nis'].append(self.nis)
-        self._history['loglik'].append(self.loglik)
+        self._history['NEES'].append(self.nees)
+        self._history['NIS'].append(self.nis)
+        self._history['LogLik'].append(self.loglik)
 
     def _compute_metrics(self, xres, xprec, yres, yprec):
         """compute performance metrics"""
@@ -198,7 +207,6 @@ class KalmanFilterBase(ABC):
 
 
 ### abstract methods to be implemented by children of this base class ###
-
 
     @abstractmethod
     def validate(self) -> None:
@@ -229,23 +237,38 @@ class KalmanFilterBase(ABC):
 
 ### accessing filter/smoother results###
 
-    def get_mean(self, i: int, smoother: bool = False) -> ndarray:
+    def get_mean(
+        self,
+        inds: int,
+        smoother: bool = False
+    ) -> ndarray:
         """Get state mean time series of ith state"""
         cname = 'smoother_mean' if smoother else 'mean'
-        return np.stack(self.df[cname].values)[:, i]
+        return np.stack(self.df[cname].values)[:, inds]
 
-    def get_cov(self, i: int, j: int | None = None,
-                smoother: bool = False) -> ndarray:
-        """Get state covariance of ith state"""
+    def get_time_elapsed(self) -> ndarray:
+        """Get time elapsed"""
+        return self.df['TimeElapsed'].values
+
+    def get_cov(
+        self,
+        row_inds: int,
+        col_inds: int | None = None,
+        smoother: bool = False
+    ) -> ndarray:
+        """Get state covariance matrix for the desired indices"""
         cname = 'smoother_cov' if smoother else 'cov'
-        j = j if j is not None else i
-        return np.stack(self.df[cname].values)[:, i, j]
+        row_inds = row_inds if isinstance(row_inds, list) else [row_inds]
+        col_inds = col_inds if col_inds is not None else row_inds
+        col_inds = col_inds if isinstance(col_inds, list) else [col_inds]
+        indices = np.ix_(np.arange(self.df.shape[0]), row_inds, col_inds)
+        return np.stack(self.df[cname].values)[indices]
 
     @property
     def metrics(self) -> dict:
         """Get the summary performance metrics"""
-        cnames = ['nees', 'nis', 'loglik',
-                  'smoother_nees', 'smoother_nis', 'smoother_loglik']
+        cnames = ['NEES', 'NIS', 'LogLik',
+                  'SmootherNEES', 'SmootherNIS', 'SmootherLogLik']
         out_metrics = {}
         for cname in cnames:
             if cname in list(self.df.columns):
@@ -256,49 +279,107 @@ class KalmanFilterBase(ABC):
 
 ### Plotting related ###
 
-
-    def plot_state(
+    def plot_state_mean(
         self,
-        in_ax: plt.Axes,
-        indx: int,
+        state_index: int,
+        *args,
+        ax: plt.Axes | None = None,
         smoother: bool = False,
-        lcolor: str = 'r',
+        **kwargs
+    ) -> None:
+        """Plot the time history of state estimates"""
+        self.check_state_index(state_index)
+        ax = plt.gca() if ax is None else ax
+        tvec = self.get_time_elapsed()
+        xvec = self.get_mean(state_index, smoother=smoother)
+        cb = ax.plot(tvec, xvec, *args, **kwargs)
+        ax.set_ylabel(f'{self.labels[state_index]}')
+        ax.set_xlim([tvec[0], tvec[-1]])
+        ax.set_xlabel('Time elapsed (Seconds)')
+        return cb
+
+    def plot_state_cbound(
+        self,
+        state_index: int,
+        *args,
+        ax: plt.Axes | None = None,
+        smoother: bool = False,
         cb_fac: float = 3.,
         **kwargs
     ) -> None:
         """Plot the time history of state estimates"""
-        if indx > self.nx:
-            self.raiseit(f'Choose state_index < {self.nx}')
-        cname_mean = 'smoother_mean' if smoother is True else 'mean'
-        cname_cov = 'smoother_cov' if smoother is True else 'cov'
-        tvec = self.df['time_elapsed'].values
-        xvec = np.stack(self.df[cname_mean].values)[:, indx]
-        xvec_var = np.stack(self.df[cname_cov].values)[:, indx, indx]
-        cb_width = cb_fac * xvec_var**0.5
-        in_ax.plot(tvec, xvec, color=lcolor, **kwargs)
-        in_ax.fill_between(tvec, xvec - cb_width, xvec + cb_width,
-                           fc=lcolor, ec='none', alpha=0.25)
-        in_ax.set_ylabel(f'{self.labels[indx]}')
-        in_ax.set_xlim([tvec[0], tvec[-1]])
-        in_ax.set_xlabel('Time elapsed (Seconds)')
+        self.check_state_index(state_index)
+        ax = plt.gca() if ax is None else ax
+        tvec = self.get_time_elapsed()
+        xvec = self.get_mean(state_index, smoother=smoother)
+        xvec_var = self.get_cov(state_index, smoother=smoother)
+        cb_width = np.ravel(cb_fac * xvec_var**0.5)
+        cb = ax.fill_between(tvec, xvec - cb_width, xvec +
+                             cb_width, *args, **kwargs)
+        ax.set_ylabel(f'{self.labels[state_index]}')
+        ax.set_xlim([tvec[0], tvec[-1]])
+        ax.set_xlabel('Time elapsed (Seconds)')
+        return cb
+
+    def plot_trajectory_cbound(
+        self,
+        x_indx: int,
+        y_indx: int,
+        ax: plt.Axes | None = None,
+        smoother: bool = False,
+        cb_fac: float = 3.,
+        **kwargs
+    ) -> None:
+        """Plot the trajectory"""
+        self.check_state_index(x_indx)
+        self.check_state_index(y_indx)
+        ax = plt.gca() if ax is None else ax
+        xlocs = self.get_mean(x_indx, smoother=smoother)
+        ylocs = self.get_mean(y_indx, smoother=smoother)
+        xy_vars = self.get_cov([x_indx, y_indx], smoother=smoother)
+        for xloc, yloc, icov in zip(xlocs, ylocs, xy_vars):
+            width, height, angle = get_covariance_ellipse(icov, cb_fac)
+            #print(width, height, angle)
+            ellip = Ellipse(xy=[xloc, yloc], width=width, height=height,
+                            angle=angle, **kwargs)
+            ax.add_artist(ellip)
+
+    def plot_trajectory_mean(
+        self,
+        x_indx: int,
+        y_indx: int,
+        *args,
+        ax: plt.Axes | None = None,
+        smoother: bool = False,
+        **kwargs
+    ) -> None:
+        """Plot the trajectory"""
+        self.check_state_index(x_indx)
+        self.check_state_index(y_indx)
+        ax = plt.gca() if ax is None else ax
+        xlocs = self.get_mean(x_indx, smoother=smoother)
+        ylocs = self.get_mean(y_indx, smoother=smoother)
+        cb = ax.plot(xlocs, ylocs, *args, **kwargs)
+        return cb
 
     def plot_metric(
         self,
-        in_ax: plt.Axes,
-        metric: str = 'nis',
+        ax: plt.Axes | None = None,
+        metric: str = 'NIS',
         smoother: bool = False,
         **kwargs
     ) -> None:
         """Plot the time history of a performance metric"""
+        ax = plt.gca() if ax is None else ax
         cname_append = 'smoother_' if smoother else ''
         cname = cname_append + metric
         dfshort = self.df[~self.df[cname].isna()]
-        tvec = dfshort['time_elapsed'].values
+        tvec = dfshort['TimeElapsed'].values
         xvec = dfshort[cname].values
-        in_ax.plot(tvec, xvec, **kwargs)
-        in_ax.set_ylabel(metric)
-        in_ax.set_xlim([tvec[0], tvec[-1]])
-        in_ax.set_xlabel('Time elapsed (Seconds)')
+        ax.plot(tvec, xvec, **kwargs)
+        ax.set_ylabel(metric)
+        ax.set_xlim([tvec[0], tvec[-1]])
+        ax.set_xlabel('Time elapsed (Seconds)')
 
 ### Matrix/vector handling###
 
@@ -309,6 +390,11 @@ class KalmanFilterBase(ABC):
         out_str += f'Dimension of the observations = {self._ny}\n'
         out_str += f'Time interval for forecasting = {self.dt}\n'
         return out_str
+
+    def check_state_index(self, indx: int):
+        """Check the validity of the state index"""
+        if indx > self.nx:
+            self.raiseit(f'Invalid {indx}, choose state_index < {self.nx}')
 
     def mat_setter(self, in_mat, to_shape=None) -> ndarray:
         """Returns a valid numpy array2d while checking for its shape"""
@@ -353,91 +439,91 @@ class KalmanFilterBase(ABC):
 ### Getter for private class variables at last update/forecast###
 
 
-    @property
+    @ property
     def nx(self) -> int:
         """Dimension of state space"""
         return self._nx
 
-    @property
+    @ property
     def ny(self) -> int:
         """Dimension of observation space"""
         return self._ny
 
-    @property
+    @ property
     def m(self) -> ndarray:
         """State mean"""
         return self._m
 
-    @property
+    @ property
     def P(self) -> ndarray:
         """State covariance matrix"""
         return self._P
 
-    @property
+    @ property
     def time_elapsed(self) -> float:
         """Time elapsed so far """
         return self._time_elapsed
 
-    @property
+    @ property
     def last_update_at(self) -> float:
         """Time elapsed so far """
         return self._last_update_at
 
-    @property
+    @ property
     def nis(self) -> float:
         """Normalized innovation squared at the last update"""
         return self._nis
 
-    @property
+    @ property
     def nees(self) -> float:
         """Normalized estimation error squared at the last update"""
         return self._nees
 
-    @property
+    @ property
     def loglik(self) -> float:
         """Normalized estimation error squared at the last update"""
         return self._loglik
 
-    @property
+    @ property
     def history(self) -> pd.DataFrame:
         """History of the filter in the form of a dictionary"""
         return self._history
 
-    @property
+    @ property
     def df(self) -> pd.DataFrame:
         """History of the filter in the form of a pandas dataframe"""
         return pd.DataFrame(self.history)
 
 ### Getter/Setter for Truth and observations###
 
-    @property
+    @ property
     def truth(self) -> ndarray:
         """State truth"""
         return self._truth
 
-    @truth.setter
+    @ truth.setter
     def truth(self, in_mat: ndarray | None) -> None:
         """Setter for state truth"""
         self._truth = self.vec_setter(
             in_mat, self.nx) if in_mat is not None else None
 
-    @property
+    @ property
     def obs(self) -> ndarray:
         """Observation vector"""
         return self._obs
 
-    @obs.setter
+    @ obs.setter
     def obs(self, in_mat: ndarray | None) -> None:
         """Setter for observation vector"""
         self._obs = self.vec_setter(
             in_mat, self.ny) if in_mat is not None else None
 
-    @property
+    @ property
     def labels(self) -> list:
         """Labels"""
         return self._labels
 
-    @labels.setter
+    @ labels.setter
     def labels(self, in_val: Sequence[str]) -> None:
         """Setter for labels"""
         if len(in_val) != self.nx:
@@ -447,92 +533,103 @@ class KalmanFilterBase(ABC):
 
 ### Getter/Setter for matrices of dynamics model###
 
-    @property
+    @ property
     def F(self) -> ndarray:
         """State transition matrix"""
         return self._F
 
-    @F.setter
+    @ F.setter
     def F(self, in_mat: ndarray) -> None:
         """Setter for state transition matrix"""
         self._F = self.mat_setter(in_mat, (self.nx, self.nx))
 
-    @property
+    @ property
     def G(self) -> ndarray:
         """Model error Jacobian matrix"""
         return self._G
 
-    @G.setter
+    @ G.setter
     def G(self, in_mat: ndarray) -> None:
         """Setter for state transition matrix"""
         self._G = self.mat_setter(in_mat, (self.nx, self.nx))
 
-    @property
+    @ property
     def Q(self) -> ndarray:
         """Process error covariance matrix"""
         return self._Q
 
-    @Q.setter
+    @ Q.setter
     def Q(self, in_mat: ndarray) -> None:
         """Setter for process error covariance matrix"""
         self._Q = self.mat_setter(in_mat, (self.nx, self.nx))
 
-    @property
+    @ property
     def qbar(self) -> ndarray:
         """Process error mean"""
         return self._qbar
 
-    @qbar.setter
+    @ qbar.setter
     def qbar(self, in_mat: ndarray) -> None:
         """Setter for process error mean"""
         self._qbar = self.vec_setter(in_mat, self.nx)
 
 ### Getter/Setter for matrices of observation model###
 
-    @property
+    @ property
     def H(self) -> ndarray:
         """observation matrix"""
         return self._H
 
-    @H.setter
+    @ H.setter
     def H(self, in_mat: ndarray) -> None:
         """Setter for observation-state relation"""
         self._H = self.mat_setter(in_mat, (self.ny, self.nx))
 
-    @property
+    @ property
     def J(self) -> ndarray:
         """observation error jacobian matrix"""
         return self._J
 
-    @J.setter
+    @ J.setter
     def J(self, in_mat: ndarray) -> None:
         """Setter for observation-state relation"""
         self._J = self.mat_setter(in_mat, (self.ny, self.ny))
 
-    @property
+    @ property
     def R(self) -> ndarray:
         """observation error covariance matrix"""
         return self._R
 
-    @R.setter
+    @ R.setter
     def R(self, in_mat: ndarray) -> None:
         """Setter for observation error covariance matrix"""
         self._R = self.mat_setter(in_mat, (self.ny, self.ny))
 
-    @property
+    @ property
     def rbar(self) -> ndarray:
         """Observation error mean"""
         return self._rbar
 
-    @rbar.setter
+    @ rbar.setter
     def rbar(self, in_mat: ndarray) -> None:
         """Setter for obs error mean"""
         self._rbar = self.vec_setter(in_mat, self.ny)
 
-    @staticmethod
+    @ staticmethod
     def symmetrize(in_mat: ndarray) -> ndarray:
         """Return a symmetrized version of NumPy array"""
         if np.any(np.isnan(in_mat)) or np.any(in_mat.diagonal() < 0.):
             print('\np update went wrong!')
             print(in_mat.diagonal())
         return (in_mat + in_mat.T) / 2.
+
+
+def get_covariance_ellipse(icov: ndarray, fac: float):
+    """Retruns width, height, and angle of the covariance ellipse"""
+    vals, vecs = np.linalg.eigh(icov)
+    order = vals.argsort()[::-1]
+    vals = vals[order]
+    vecs = vecs[:, order]
+    theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+    width, height = 2. * fac * np.sqrt(vals)
+    return width, height, theta

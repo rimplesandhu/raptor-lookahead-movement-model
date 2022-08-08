@@ -42,7 +42,7 @@ class ExtendedKalmanFilter(KalmanFilterBase):
             self.G = self.compute_G(self.m, self.qbar)
         self._m = self.f(self.m, self.qbar)
         self._P = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
-        self._P = self.symmetrize(self.P)
+        #self._P = self.symmetrize(self.P)
         self._store_this_step()
 
     def update(self) -> None:
@@ -53,10 +53,10 @@ class ExtendedKalmanFilter(KalmanFilterBase):
         y_pred = self.h(self.m, self.rbar)
         Smat = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
         Smat_inv = np.linalg.pinv(Smat, hermitian=True)
-        y_res = self.residual(self.obs, y_pred)
+        y_res = self.y_subtract(self.obs, y_pred)
         Kmat = self.P @ self.H.T @ Smat_inv
         x_res = Kmat @ y_res
-        self._m += x_res
+        self._m = self.x_add(self.m, x_res)
         Tmat = np.eye(self.nx) - Kmat @ self.H  # Joseph's form, num stable
         self._P = Tmat @ self.P @ Tmat.T + Kmat @ self.R @ Kmat.T
         self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
@@ -75,14 +75,16 @@ class ExtendedKalmanFilter(KalmanFilterBase):
         fcov = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
         fcov_inv = np.linalg.pinv(fcov, hermitian=True)
         gmat = self.P @ self.F.T @ fcov_inv
-        self._m += gmat @ (smean_next - self.f(self.m, self.qbar))
+        xres = gmat @ self.x_subtract(smean_next, self.f(self.m, self.qbar))
+        self._m = self.x_add(self.m, xres)
         self._P += gmat @ (scov_next - fcov) @ gmat.T
+        #self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
         if self.obs is not None:
             self.H = self.compute_H(self.m, self.rbar)
             if self.compute_J is not None:
                 self.J = self.compute_J(self.m, self.rbar)
             y_pred = self.h(self.m, self.rbar)
-            y_res = self.residual(self.obs, y_pred)
+            y_res = self.y_subtract(self.obs, y_pred)
             Smat = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
             Smat_inv = np.linalg.pinv(Smat, hermitian=True)
             Kmat = self.P @ self.H.T @ Smat_inv

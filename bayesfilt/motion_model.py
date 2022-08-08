@@ -1,5 +1,6 @@
 """Base class for defining a motion model"""
 from abc import abstractmethod
+from collections.abc import Callable
 import numpy as np
 from numpy import ndarray
 from .state_space_model import StateSpaceModel
@@ -27,6 +28,12 @@ class MotionModel(StateSpaceModel):
         self._G: ndarray | None = None  # Error Jacobian matrix
         self._Q: ndarray | None = None  # Error covariance matrix
         self._labels = [f'x_{i}' for i in range(self.nx)]
+
+    def subtract(self, x0: ndarray, x1: ndarray):
+        """Residual function for computing difference among states"""
+        x0 = self.vec_setter(x0, self.nx)
+        x1 = self.vec_setter(x1, self.nx)
+        return np.subtract(x0, x1)
 
     @abstractmethod
     def update(

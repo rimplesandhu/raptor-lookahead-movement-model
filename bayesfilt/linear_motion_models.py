@@ -207,6 +207,7 @@ class ConstantAccelerationND(LinearMotionModel):
         self._dt = self.float_setter(dt)
         self._sigmas = self.vec_setter(sigmas, self._dof)
         self._initiate_matrices_to_identity()
+        self._labels = []
         for i, sigma in enumerate(self.sigmas):
             self._ca1d.update(self.dt, sigma)
             self._F[i * 3:(i + 1) * 3, i * 3:(i + 1) * 3] = self._ca1d.F.copy()
