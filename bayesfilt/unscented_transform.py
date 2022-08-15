@@ -133,7 +133,8 @@ class UnscentedTransform(SigmaPoints):
         Pyy = sum([iw * np.outer(iy, iy) for iy, iw in zip(y_res, self.wc)])
         # if np.any(np.linalg.eigvals(Pyy) < 0):
         #     print('P gone wrong in ut!')
-        #print('m:', np.around(m, 2), '\nP:', np.around(P.diagonal(), 2))
+        #print('m:', np.around(m, 2), '\nP:', np.around(Pyy.diagonal(), 2))
+        # print(Pyy)
         # print('mnew:', np.around(y_mvec, 2),
         #      '\nPnew:', np.around(Pyy.diagonal(), 2))
         # for i, ipt in enumerate(x_spts):

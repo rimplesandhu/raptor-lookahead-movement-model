@@ -150,7 +150,7 @@ class KalmanFilterBase(ABC):
                 self.forecast()
             if np.any(np.linalg.eigvals(self.P) < 0):
                 print('Exiting because covariance is not pos def!')
-                break
+                raise
 
     def smoother(self):
         """Run smoothing assuming model/measurement eq are time invariant"""
@@ -618,9 +618,9 @@ class KalmanFilterBase(ABC):
     @ staticmethod
     def symmetrize(in_mat: ndarray) -> ndarray:
         """Return a symmetrized version of NumPy array"""
-        if np.any(np.isnan(in_mat)) or np.any(in_mat.diagonal() < 0.):
-            print('\np update went wrong!')
-            print(in_mat.diagonal())
+        # if np.any(np.isnan(in_mat)) or np.any(in_mat.diagonal() < 0.):
+        #     print('\np update went wrong!')
+        #     print(in_mat.diagonal())
         return (in_mat + in_mat.T) / 2.
 
 

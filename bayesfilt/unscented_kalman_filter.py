@@ -41,12 +41,12 @@ class UnscentedKalmanFilter(KalmanFilterBase):
                                                 self.x_subtract,
                                                 self.x_mean_fn)
 
-        if np.any(np.linalg.eigvals(self.P) < 0):
-            print('P gone wrong forecast:',
-                  self.time_elapsed, self.last_update_at)
+        # if np.any(np.linalg.eigvals(self.P) < 0):
+        #     print('P gone wrong forecast:',
+        #           self.time_elapsed, self.last_update_at)
         self._P += self.G @ self.Q @ self.G.T
-        if np.any(np.linalg.eigvals(self.P) < 0):
-            print('P gone forecast wrong!')
+        # if np.any(np.linalg.eigvals(self.P) < 0):
+        #     print('P gone forecast wrong!')
         #print('Forecast:', np.degrees(self.m[2]), np.degrees(self.P[2, 2]))
         self._store_this_step()
 
@@ -72,7 +72,8 @@ class UnscentedKalmanFilter(KalmanFilterBase):
         #print('update:', np.degrees(x_res[2]), np.degrees(self.m[2]))
         # self._m = self.x_subtract(self.m, -x_res)
         self._P -= Kmat @ Smat @ Kmat.T
-        #self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
+        self._P = self.symmetrize(self.P) + 0. * \
+            np.diag([self.epsilon] * self.nx)
         #print('update P:', np.around(self.P.diagonal(), 2))
         Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
         self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
@@ -91,7 +92,8 @@ class UnscentedKalmanFilter(KalmanFilterBase):
         self._m = self.x_add(self.m, Dmat @ self.x_subtract(smean_next, mhat))
         # self._m += Dmat @ (smean_next - mhat)
         self._P += Dmat @ (scov_next - Phat) @ Dmat.T
-        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
+        self._P = self.symmetrize(self.P) + 0. * \
+            np.diag([self.epsilon] * self.nx)
         if self.obs is not None:
             y_pred, Smat, Pxy = self.ut.transform(self.m, self.P, self.h,
                                                   self.x_subtract,

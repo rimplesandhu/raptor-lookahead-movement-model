@@ -40,7 +40,7 @@ class KalmanFilter(KalmanFilterBase):
         y_pred = self.H @ self.m
         Smat = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
         Smat_inv = np.linalg.pinv(Smat, hermitian=True)
-        y_res = self.residual(self.obs, y_pred)
+        y_res = self.y_subtract(self.obs, y_pred)
         Kmat = self.P @ self.H.T @ Smat_inv
         x_res = Kmat @ y_res
         self._m += x_res

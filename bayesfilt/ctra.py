@@ -22,19 +22,26 @@ class CTRA2D(MotionModel):
         """Model dynamics function"""
         x = self.vec_setter(x, self.nx)
         next_x = deepcopy(x)
-        next_x[4] = min(abs(next_x[4]), np.pi / 7.) * \
-            (next_x[4] / abs(next_x[4]))
+        # next_x[4] = min(abs(next_x[4]), np.pi / 7.) * \
+        #     (next_x[4] / abs(next_x[4]))
 
-        next_x[3] += x[5] * self.dt
+        # if x[3] < 0.:
+        #     x[3] *= -1
+        #     x[2] += np.pi
+
+        next_x[4] = 0.95 * x[4]  # yawrate
+        next_x[5] = 0.95 * x[5]  # hor accn
 
         #next_x[3] = abs(next_x[3])
-        # next_x[0] += x[3] * np.sin(x[2]) * self.dt
-        # next_x[1] += x[3] * np.cos(x[2]) * self.dt
-        #     next_x[0] += x[3] * np.sin(x[2]) * self.dt
-        #     next_x[1] += x[3] * np.cos(x[2]) * self.dt
+        # next_x[0] += x[3] * np.sin(x[2]) * self.dt  # x loc
+        # next_x[1] += x[3] * np.cos(x[2]) * self.dt  # y loc
+
         # else:
         # if abs(x[4]) > np.pi / 4:
-        next_x[2] += x[4] * self.dt
+        next_x[2] += x[4] * self.dt  # heading
+        next_x[3] += x[5] * self.dt  # speed
+
+        #next_x[3] = abs(next_x[3])
         next_x[2] = next_x[2] % (2.0 * np.pi)
         if next_x[2] > np.pi:
             next_x[2] -= 2. * np.pi
@@ -111,7 +118,7 @@ class CTRA2D(MotionModel):
         # out_Q[2, 2] = sigma_sq[0] * self.dt ** 3 / 3.
         # # out_Q[2, 4] = sigma_sq[0] * self.dt ** 2 / 2.
         # out_Q[3, 3] = sigma_sq[1] * self.dt ** 3 / 3.
-        # # out_Q[3, 5] = sigma_sq[1] * self.dt ** 2 / 2.
+        # # out_Q[3, 5] = sxsigma_sq[1] * self.dt ** 2 / 2.
         #
         out_Q[2, 2] = sigma_sq[0] * self.dt ** 3 / 3.
         out_Q[2, 4] = sigma_sq[0] * self.dt ** 2 / 2.
@@ -133,6 +140,7 @@ class CTRA2D(MotionModel):
         xres[2] = xres[2] % (2.0 * np.pi)
         if xres[2] > np.pi:
             xres[2] -= 2. * np.pi
+        #xres[3] = max(x0[3], 0) - max(x1[3], 0)
         return xres
 
     def compute_G(
