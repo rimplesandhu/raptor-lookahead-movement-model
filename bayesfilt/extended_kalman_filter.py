@@ -23,15 +23,15 @@ class ExtendedKalmanFilter(KalmanFilterBase):
         """Check if system matrices/functions are initiated"""
         super().validate()
         if self.f is None:
-            self.raiseit('Need to define dynamics function f()')
+            self.raiseit('EKF: Need to define dynamics function f()')
         if self.h is None:
-            self.raiseit('Need to define observation function h()')
+            self.raiseit('EKF: Need to define observation function h()')
         if self.compute_F is None:
-            self.raiseit('Need to define function compute_F to compute F!')
+            self.raiseit('EKF: Need to define function compute_F!')
         if self.compute_Q is None:
-            self.raiseit('Need to define function compute_Q to compute Q!')
+            self.raiseit('EKF: Need to define function compute_Q!')
         if self.compute_H is None:
-            self.raiseit('Need to define function compute_H to compute H!')
+            self.raiseit('EKF: Need to define function compute_H!')
 
     def forecast(self) -> None:
         """Kalman filter forecast step"""
@@ -42,7 +42,7 @@ class ExtendedKalmanFilter(KalmanFilterBase):
             self.G = self.compute_G(self.m, self.qbar)
         self._m = self.f(self.m, self.qbar)
         self._P = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
-        #self._P = self.symmetrize(self.P)
+        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
         self._store_this_step()
 
     def update(self) -> None:
@@ -64,10 +64,8 @@ class ExtendedKalmanFilter(KalmanFilterBase):
         self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
         self._store_this_step(update=True)
 
-    def _backward_filter(self):
+    def _backward_filter(self, smean_next, scov_next):
         """Backward filter"""
-        smean_next = self.history['smoother_mean'][-1]
-        scov_next = self.history['smoother_cov'][-1]
         self.F = self.compute_F(self.m, self.qbar)
         if self.compute_G is not None:
             self.G = self.compute_G(self.m, self.qbar)
@@ -78,7 +76,7 @@ class ExtendedKalmanFilter(KalmanFilterBase):
         xres = gmat @ self.x_subtract(smean_next, self.f(self.m, self.qbar))
         self._m = self.x_add(self.m, xres)
         self._P += gmat @ (scov_next - fcov) @ gmat.T
-        #self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
+        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
         if self.obs is not None:
             self.H = self.compute_H(self.m, self.rbar)
             if self.compute_J is not None:

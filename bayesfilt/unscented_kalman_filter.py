@@ -1,5 +1,4 @@
 """Unscented Kalman Filter class"""
-from collections.abc import Callable
 import numpy as np
 from .kalman_filter_base import KalmanFilterBase
 from .unscented_transform import UnscentedTransform
@@ -25,82 +24,83 @@ class UnscentedKalmanFilter(KalmanFilterBase):
     def validate(self) -> None:
         """Check if system matrices/functions are initiated"""
         super().validate()
-        if self.f is None:
-            self.raiseit('Need to define dynamics function f()')
-        if self.h is None:
-            self.raiseit('Need to define observation function h()')
-        if self.Q is None:
-            self.raiseit('Need to initiate Q matrix!')
+        if (self.f is None) and (self.F is None):
+            self.raiseit('UKF: Need to define either function f() or matrix F')
+        if (self.h is None) and (self.H is None):
+            self.raiseit('UKF: Need to define either function h() or matrix H')
 
     def forecast(self) -> None:
         """UKF forecast step"""
         super().forecast()
-        #print('----', self.time_elapsed)
-        self._m, self._P, _ = self.ut.transform(self.m, self.P, self.f,
-                                                self.x_subtract,
-                                                self.x_subtract,
-                                                self.x_mean_fn)
-
-        # if np.any(np.linalg.eigvals(self.P) < 0):
-        #     print('P gone wrong forecast:',
-        #           self.time_elapsed, self.last_update_at)
-        self._P += self.G @ self.Q @ self.G.T
-        # if np.any(np.linalg.eigvals(self.P) < 0):
-        #     print('P gone forecast wrong!')
-        #print('Forecast:', np.degrees(self.m[2]), np.degrees(self.P[2, 2]))
+        # print('----', self.time_elapsed)
+        if self.F is None:
+            self._m, new_P, _ = self.ut.transform(self.m, self.P, self.f,
+                                                  self.x_subtract,
+                                                  self.x_subtract,
+                                                  self.x_mean_fn)
+        else:
+            self._m = self.F @ self.m
+            new_P = self.F @ self.P @ self.F.T
+        new_P += self.G @ self.Q @ self.G.T
+        new_P = self.symmetrize(new_P) + np.diag([self.epsilon] * self.nx)
+        if not np.any(np.linalg.eigvals(new_P) < 0):
+            self._P = new_P
         self._store_this_step()
 
     def update(self) -> None:
         """UKF update step"""
-        y_pred, Smat, Pxy = self.ut.transform(self.m, self.P, self.h,
-                                              self.x_subtract,
-                                              self.y_subtract,
-                                              self.y_mean_fn)
-        #print('y_pred:', np.around(y_pred, 2))
-        y_res = self.y_subtract(self.obs, y_pred)
-        #print('y_res:', np.around(y_res, 2))
-        #print('yobs,ypred', np.degrees(self.obs[2]), np.degrees(y_pred[2]))
-        Smat += self.R
-        Smat_inv = np.linalg.pinv(Smat, hermitian=True)
-        Kmat = Pxy @ Smat_inv
-        x_res = Kmat @ y_res
-        #print('x_res:', np.around(x_res, 2))
-        self._m = self.x_add(self.m, x_res)
-        #print('obs:', np.around(self.obs, 2))
-        #print('obs r:', np.around(self.R.diagonal(), 2))
-        #print('update m:', np.around(self.m, 2))
-        #print('update:', np.degrees(x_res[2]), np.degrees(self.m[2]))
-        # self._m = self.x_subtract(self.m, -x_res)
-        self._P -= Kmat @ Smat @ Kmat.T
-        self._P = self.symmetrize(self.P) + 0. * \
-            np.diag([self.epsilon] * self.nx)
-        #print('update P:', np.around(self.P.diagonal(), 2))
-        Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
-        self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
-        self._store_this_step(update=True)
-
-    def _backward_filter(self):
-        """Backward filter"""
-        smean_next = self.history['smoother_mean'][-1]
-        scov_next = self.history['smoother_cov'][-1]
-        mhat, Phat, Cmat = self.ut.transform(
-            self.m, self.P, self.f,
-            self.x_subtract, self.x_subtract, self.x_mean_fn)
-        Phat += self.G @ self.Q @ self.G.T
-        Dmat = Cmat @ np.linalg.pinv(Phat, hermitian=True)
-        #self._m += Dmat @ self.x_subtract(smean_next, mhat)
-        self._m = self.x_add(self.m, Dmat @ self.x_subtract(smean_next, mhat))
-        # self._m += Dmat @ (smean_next - mhat)
-        self._P += Dmat @ (scov_next - Phat) @ Dmat.T
-        self._P = self.symmetrize(self.P) + 0. * \
-            np.diag([self.epsilon] * self.nx)
-        if self.obs is not None:
+        if self.H is None:
             y_pred, Smat, Pxy = self.ut.transform(self.m, self.P, self.h,
                                                   self.x_subtract,
                                                   self.y_subtract,
                                                   self.y_mean_fn)
-            y_res = self.y_subtract(self.obs, y_pred)
+        else:
+            y_pred = self.H @ self.m
+            Smat = self.H @ self.P @ self.H.T
+            Pxy = self.P @ self.H.T
+        Smat += self.J @ self.R @ self.J.T
+        y_res = self.y_subtract(self.obs, y_pred)
+        Smat_inv = np.linalg.pinv(Smat, hermitian=True)
+        Kmat = Pxy @ Smat_inv
+        x_res = Kmat @ y_res
+        self._m = self.x_add(self.m, x_res)
+        Tmat = np.eye(self.nx) - Kmat @ self.H
+        self._P = Tmat @ self.P @ Tmat.T + Kmat @ self.R @ Kmat.T  # Joseph
+        # self._P -= Kmat @ Smat @ Kmat.T
+        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
+        Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
+        self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
+        self._store_this_step(update=True)
+
+    def _backward_filter(self, smean_next, scov_next):
+        """Backward filter"""
+        if self.F is None:
+            mhat, Phat, Cmat = self.ut.transform(
+                self.m, self.P, self.f,
+                self.x_subtract, self.x_subtract, self.x_mean_fn)
+        else:
+            mhat = self.F @ self.m
+            Phat = self.F @ self.P @ self.F.T
+            Cmat = self.P @ self.F.T
+        Phat += self.G @ self.Q @ self.G.T
+        Dmat = Cmat @ np.linalg.pinv(Phat, hermitian=True)
+        self._m = self.x_add(self.m, Dmat @ self.x_subtract(smean_next, mhat))
+        self._P += Dmat @ (scov_next - Phat) @ Dmat.T
+        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
+        if self.obs is not None:
+            if self.H is None:
+                y_pred, Smat, Pxy = self.ut.transform(self.m, Phat, self.h,
+                                                      self.x_subtract,
+                                                      self.y_subtract,
+                                                      self.y_mean_fn)
+            else:
+                y_pred = self.H @ self.m
+                #Smat = self.H @ self.P @ self.H.T
+                Smat = self.H @ Phat @ self.H.T
+                # Pxy = self.P @ self.H.T
+                Pxy = Phat @ self.H.T
             Smat += self.J @ self.R @ self.J.T
+            y_res = self.y_subtract(self.obs, y_pred)
             Smat_inv = np.linalg.pinv(Smat, hermitian=True)
             Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
             Kmat = Pxy @ Smat_inv

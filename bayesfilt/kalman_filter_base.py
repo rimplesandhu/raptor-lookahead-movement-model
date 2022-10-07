@@ -26,7 +26,7 @@ class KalmanFilterBase(ABC):
     ):
         # basic info
         self.name: str = 'KFBase'
-        self.id: str = str(object_id)
+        self.id: str = object_id
         self.dt: float = dt
         self.dt_tol: float = 0.01
         self.epsilon: float = 1e-20
@@ -65,7 +65,6 @@ class KalmanFilterBase(ABC):
         self.y_mean_fn: Callable | None = None
 
         # Kalman filtering parameters
-        self._Sinv: ndarray
         self._nees: float = np.nan  # normalized estimation error squared
         self._nis: float = np.nan  # normalized innovation squared
         self._loglik: float = np.nan  # log lik of observations
@@ -74,10 +73,13 @@ class KalmanFilterBase(ABC):
         self._labels: Sequence[str] = [f'x_{i}' for i in range(self._nx)]
 
         # saving history of filter and smoother
-        varnames = ['TimeElapsed', 'observation', 'truth', 'observation_cov',
-                    'mean', 'cov', 'NEES', 'NIS', 'LogLik']
+        varnames = ['TimeElapsed', 'Observation', 'Truth', 'ObservationCov',
+                    'FilterMean', 'FilterCov']
+        self.filter_metrics = ['FilterNEES', 'FilterNIS', 'FilterLogLik']
+        self.smoother_metrics = ['SmootherNEES',
+                                 'SmootherNIS', 'SmootherLogLik']
         self._history = {}
-        for varname in varnames:
+        for varname in varnames + self.filter_metrics:
             self._history[varname] = []
 
     def initiate_state(
@@ -150,32 +152,34 @@ class KalmanFilterBase(ABC):
                 self.forecast()
             if np.any(np.linalg.eigvals(self.P) < 0):
                 print('Exiting because covariance is not pos def!')
-                raise
+                break
 
     def smoother(self):
         """Run smoothing assuming model/measurement eq are time invariant"""
         nsteps = len(self.history['TimeElapsed'])
         if nsteps < 1:
             self.raiseit('No state history found, run filter first!')
-        cnames = ['smoother_mean', 'smoother_cov',
-                  'SmootherNEES', 'SmootherNIS', 'SmootherLogLik']
+        cnames = ['SmootherMean', 'SmootherCov'] + self.smoother_metrics
         for cname in cnames:
             self._history[cname] = []
         for i in reversed(range(nsteps)):
-            self._obs = self.history['observation'][i]
-            self._truth = self.history['truth'][i]
-            self._m = deepcopy(self.history['mean'][i])
-            self._P = deepcopy(self.history['cov'][i])
-            self._R = self.history['observation_cov'][i]
+            self._time_elapsed = self.history['TimeElapsed'][i]
+            self._obs = self.history['Observation'][i]
+            self._truth = self.history['Truth'][i]
+            self._m = deepcopy(self.history['FilterMean'][i])
+            self._P = deepcopy(self.history['FilterCov'][i])
+            self._R = self.history['ObservationCov'][i]
             if i != nsteps - 1:
-                self._backward_filter()
-            self._history['smoother_mean'].append(deepcopy(self.m))
-            self._history['smoother_cov'].append(deepcopy(self.P))
-            self._history['SmootherNEES'].append(self.nees)
-            self._history['SmootherNIS'].append(self.nis)
-            self._history['SmootherLogLik'].append(self.loglik)
+                smean_next = self.history['SmootherMean'][-1]
+                scov_next = self.history['SmootherCov'][-1]
+                self._backward_filter(smean_next, scov_next)
+            self._history['SmootherMean'].append(deepcopy(self.m))
+            self._history['SmootherCov'].append(deepcopy(self.P))
+            self._history[self.smoother_metrics[0]].append(self.nees)
+            self._history[self.smoother_metrics[1]].append(self.nis)
+            self._history[self.smoother_metrics[2]].append(self.loglik)
         for k, v in self._history.items():
-            if k.startswith('smoother_'):
+            if k.startswith('Smoother'):
                 v.reverse()
 
     def _store_this_step(self, update: bool = False) -> None:
@@ -183,30 +187,35 @@ class KalmanFilterBase(ABC):
         self._time_elapsed = np.around(self.time_elapsed, 4)
         if update:
             for k, v in self._history.items():
-                if not k.startswith('smoother_'):
+                if not k.startswith('Smoother'):
                     del v[-1]
             self._last_update_at = self.time_elapsed
         self._history['TimeElapsed'].append(self.time_elapsed)
-        self._history['observation'].append(self.obs)
-        self._history['truth'].append(self.truth)
-        self._history['observation_cov'].append(self.R)
-        self._history['mean'].append(deepcopy(self.m))
-        self._history['cov'].append(deepcopy(self.P))
-        self._history['NEES'].append(self.nees)
-        self._history['NIS'].append(self.nis)
-        self._history['LogLik'].append(self.loglik)
+        self._history['Observation'].append(self.obs)
+        self._history['Truth'].append(self.truth)
+        self._history['ObservationCov'].append(self.R)
+        self._history['FilterMean'].append(deepcopy(self.m))
+        self._history['FilterCov'].append(deepcopy(self.P))
+        self._history[self.filter_metrics[0]].append(self.nees)
+        self._history[self.filter_metrics[1]].append(self.nis)
+        self._history[self.filter_metrics[2]].append(self.loglik)
 
     def _compute_metrics(self, xres, xprec, yres, yprec):
         """compute performance metrics"""
         self._nis = np.linalg.multi_dot([yres.T, yprec, yres])
+        prec_det = np.linalg.det(yprec)
+        # if prec_det > 0.:
         self._loglik = -0.5 * (self.ny * np.log(2. * np.pi) -
-                               np.log(np.linalg.det(yprec)) + self.nis)
+                               np.log(prec_det) + self.nis)
+        # else:
+        #    self._loglik = np.nan
         if self.truth is not None:
             xres = self.m - self.truth
         self._nees = np.linalg.multi_dot([xres.T, xprec, xres])
 
 
 ### abstract methods to be implemented by children of this base class ###
+
 
     @abstractmethod
     def validate(self) -> None:
@@ -215,6 +224,8 @@ class KalmanFilterBase(ABC):
             self.raiseit('Need to initiate state, use initiate_state()')
         if self.R is None:
             self.raiseit('Need to initiate R matrix!')
+        if self.Q is None:
+            self.raiseit('Need to initiate Q matrix!')
 
     @abstractmethod
     def forecast(self) -> None:
@@ -231,7 +242,7 @@ class KalmanFilterBase(ABC):
         """Update step"""
 
     @abstractmethod
-    def _backward_filter(self) -> None:
+    def _backward_filter(self, smean_next, scov_next) -> None:
         """Backward filter"""
 
 
@@ -243,7 +254,7 @@ class KalmanFilterBase(ABC):
         smoother: bool = False
     ) -> ndarray:
         """Get state mean time series of ith state"""
-        cname = 'smoother_mean' if smoother else 'mean'
+        cname = 'SmootherMean' if smoother else 'FilterMean'
         return np.stack(self.df[cname].values)[:, inds]
 
     def get_time_elapsed(self) -> ndarray:
@@ -257,7 +268,7 @@ class KalmanFilterBase(ABC):
         smoother: bool = False
     ) -> ndarray:
         """Get state covariance matrix for the desired indices"""
-        cname = 'smoother_cov' if smoother else 'cov'
+        cname = 'SmootherCov' if smoother else 'FilterCov'
         row_inds = row_inds if isinstance(row_inds, list) else [row_inds]
         col_inds = col_inds if col_inds is not None else row_inds
         col_inds = col_inds if isinstance(col_inds, list) else [col_inds]
@@ -267,10 +278,8 @@ class KalmanFilterBase(ABC):
     @property
     def metrics(self) -> dict:
         """Get the summary performance metrics"""
-        cnames = ['NEES', 'NIS', 'LogLik',
-                  'SmootherNEES', 'SmootherNIS', 'SmootherLogLik']
         out_metrics = {}
-        for cname in cnames:
+        for cname in self.filter_metrics + self.smoother_metrics:
             if cname in list(self.df.columns):
                 out_metrics[cname] = np.around(
                     self.df[cname].dropna().sum(), 3)
@@ -278,6 +287,7 @@ class KalmanFilterBase(ABC):
 
 
 ### Plotting related ###
+
 
     def plot_state_mean(
         self,
@@ -339,7 +349,6 @@ class KalmanFilterBase(ABC):
         xy_vars = self.get_cov([x_indx, y_indx], smoother=smoother)
         for xloc, yloc, icov in zip(xlocs, ylocs, xy_vars):
             width, height, angle = get_covariance_ellipse(icov, cb_fac)
-            #print(width, height, angle)
             ellip = Ellipse(xy=[xloc, yloc], width=width, height=height,
                             angle=angle, **kwargs)
             ax.add_artist(ellip)
@@ -365,17 +374,16 @@ class KalmanFilterBase(ABC):
     def plot_metric(
         self,
         ax: plt.Axes | None = None,
-        metric: str = 'NIS',
-        smoother: bool = False,
+        metric: str = 'FilterNIS',
         **kwargs
     ) -> None:
         """Plot the time history of a performance metric"""
         ax = plt.gca() if ax is None else ax
-        cname_append = 'smoother_' if smoother else ''
-        cname = cname_append + metric
-        dfshort = self.df[~self.df[cname].isna()]
+        if metric not in self.df.columns:
+            self.raiseit(f'Invalid metric name {metric}')
+        dfshort = self.df[~self.df[metric].isna()]
         tvec = dfshort['TimeElapsed'].values
-        xvec = dfshort[cname].values
+        xvec = dfshort[metric].values
         ax.plot(tvec, xvec, **kwargs)
         ax.set_ylabel(metric)
         ax.set_xlim([tvec[0], tvec[-1]])
@@ -438,7 +446,6 @@ class KalmanFilterBase(ABC):
 
 ### Getter for private class variables at last update/forecast###
 
-
     @ property
     def nx(self) -> int:
         """Dimension of state space"""
@@ -491,8 +498,48 @@ class KalmanFilterBase(ABC):
 
     @ property
     def df(self) -> pd.DataFrame:
-        """History of the filter in the form of a pandas dataframe"""
+        """History of the filter/smoother in the form of a pandas dataframe"""
         return pd.DataFrame(self.history)
+
+    @ property
+    def df_filter(self) -> pd.DataFrame:
+        """History of the filter in the form of a pandas dataframe"""
+        smoother = False
+        dff = self.df.loc[:, ['TimeElapsed']].copy()
+        dff[self.labels] = self.get_mean(
+            list(range(0, self.nx)), smoother=smoother)
+        col_names_var = [iname + '_var' for iname in self.labels]
+        for i, iname in enumerate(col_names_var):
+            dff[iname] = self.get_cov(i, smoother=smoother).flatten()
+        dff['Training'] = True
+        dff.loc[self.df['Observation'].isna(), 'Training'] = False
+        dff['ObjectId'] = self.id
+        for cname in self.filter_metrics:
+            dff[cname] = self.df[cname]
+        dff[dff.select_dtypes(np.float64).columns] = dff.select_dtypes(
+            np.float64).astype(np.float32)
+        return dff
+
+    @ property
+    def df_smoother(self) -> pd.DataFrame:
+        """History of the filter in the form of a pandas dataframe"""
+        if 'SmootherMean' not in self.df.columns:
+            self.raiseit('No smoother history found. Run smoother first!')
+        smoother = True
+        dff = self.df.loc[:, ['TimeElapsed']].copy()
+        dff[self.labels] = self.get_mean(
+            list(range(0, self.nx)), smoother=smoother)
+        col_names_var = [iname + '_var' for iname in self.labels]
+        for i, iname in enumerate(col_names_var):
+            dff[iname] = self.get_cov(i, smoother=smoother).flatten()
+        dff['Training'] = True
+        dff.loc[self.df['Observation'].isna(), 'Training'] = False
+        dff['ObjectId'] = self.id
+        for cname in self.smoother_metrics:
+            dff[cname] = self.df[cname]
+        dff[dff.select_dtypes(np.float64).columns] = dff.select_dtypes(
+            np.float64).astype(np.float32)
+        return dff
 
 ### Getter/Setter for Truth and observations###
 
@@ -532,6 +579,7 @@ class KalmanFilterBase(ABC):
 
 
 ### Getter/Setter for matrices of dynamics model###
+
 
     @ property
     def F(self) -> ndarray:

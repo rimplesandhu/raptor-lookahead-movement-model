@@ -9,9 +9,10 @@ class CTRA2D(MotionModel):
     # pylint: disable=invalid-name
     """Class for Constant Turn Rate and Velocity in 2D"""
 
-    def __init__(self):
+    def __init__(self, fac=0.95):
         super().__init__(nx=6, nq=6, name='CTRA2D')
         self.labels = ['X', 'Y', 'Heading', 'Hspeed', 'HeadingRate', 'Haccn']
+        self.factor = fac
 
     def f(
         self,
@@ -29,15 +30,15 @@ class CTRA2D(MotionModel):
         #     x[3] *= -1
         #     x[2] += np.pi
 
-        next_x[4] = 0.95 * x[4]  # yawrate
-        next_x[5] = 0.95 * x[5]  # hor accn
+        next_x[4] = self.factor * x[4]  # yawrate
+        next_x[5] = self.factor * x[5]  # hor accn
 
         #next_x[3] = abs(next_x[3])
         # next_x[0] += x[3] * np.sin(x[2]) * self.dt  # x loc
         # next_x[1] += x[3] * np.cos(x[2]) * self.dt  # y loc
 
         # else:
-        # if abs(x[4]) > np.pi / 4:
+        # if abs(x[4]) > np.radians(5.):
         next_x[2] += x[4] * self.dt  # heading
         next_x[3] += x[5] * self.dt  # speed
 

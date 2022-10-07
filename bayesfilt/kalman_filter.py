@@ -22,11 +22,9 @@ class KalmanFilter(KalmanFilterBase):
         """Check if system matrices/functions are initiated"""
         super().validate()
         if self.H is None:
-            self.raiseit('Need to initiate H matrix!')
+            self.raiseit('KF: Need to initiate H matrix!')
         if self.F is None:
-            self.raiseit('Need to initiate F matrix!')
-        if self.Q is None:
-            self.raiseit('Need to initiate Q matrix!')
+            self.raiseit('KF: Need to initiate F matrix!')
 
     def forecast(self) -> None:
         """Kalman filter forecast step"""
@@ -43,27 +41,34 @@ class KalmanFilter(KalmanFilterBase):
         y_res = self.y_subtract(self.obs, y_pred)
         Kmat = self.P @ self.H.T @ Smat_inv
         x_res = Kmat @ y_res
-        self._m += x_res
-        self._P = (np.eye(self.nx) - Kmat @ self.H) @ self.P
-        #self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
+        self._m = self.x_add(self.m, x_res)
+        Tmat = np.eye(self.nx) - Kmat @ self.H
+        self._P = Tmat @ self.P @ Tmat.T + Kmat @ self.R @ Kmat.T  # Joseph
+        # self._P = (np.eye(self.nx) - Kmat @ self.H) @ self.P
+        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
         Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
         self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
         self._store_this_step(update=True)
 
-    def _backward_filter(self):
+    def _backward_filter(self, smean_next, scov_next):
         """Backward filter"""
-        smean_next = self.history['smoother_mean'][-1]
-        scov_next = self.history['smoother_cov'][-1]
-        fcov = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
-        fcov_inv = np.linalg.pinv(fcov, hermitian=True)
-        gmat = self.P @ self.F.T @ fcov_inv
-        self._m += gmat @ (smean_next - self.F @ self.m)
-        self._P += gmat @ (scov_next - fcov) @ gmat.T
+        mhat = self.F @ self.m
+        Phat = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
+        Dmat = self.P @ self.F.T @ np.linalg.pinv(Phat, hermitian=True)
+        self._m = self.x_add(self.m, Dmat @ self.x_subtract(smean_next, mhat))
+        self._P += Dmat @ (scov_next - Phat) @ Dmat.T
+        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
         if self.obs is not None:
-            y_res = self.obs - self.H @ self.m
-            Smat = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
+            y_res = self.y_subtract(self.obs, self.H @ self.m)
+            #Smat = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
+            Smat = self.H @ Phat @ self.H.T + self.J @ self.R @ self.J.T
             Smat_inv = np.linalg.pinv(Smat, hermitian=True)
-            Kmat = self.P @ self.H.T @ Smat_inv
-            x_res = np.dot(Kmat, y_res)
             Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
+            #Kmat = self.P @ self.H.T @ Smat_inv
+            Kmat = Phat @ self.H.T @ Smat_inv
+            x_res = np.dot(Kmat, y_res)
             self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
+        else:
+            self._nees = np.nan
+            self._nis = np.nan
+            self._loglik = np.nan
