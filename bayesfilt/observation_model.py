@@ -108,7 +108,7 @@ class ObservationModel(StateSpaceModel):
         out_str = f':::{self.name}\n'
         out_str += f'State Dimension: {self._nx}\n'
         out_str += f'Observation Dimension: {self._ny}\n'
-        out_str += f'H:\n {np.array_str(np.array(self._H), precision=3)}\n'
-        out_str += f'J:\n {np.array_str(np.array(self._J), precision=3)}\n'
-        out_str += f'R:\n {np.array_str(np.array(self._R), precision=3)}\n'
+        out_str += f'H:\n {np.array_str(np.array(self._H), precision=4)}\n'
+        out_str += f'J:\n {np.array_str(np.array(self._J), precision=4)}\n'
+        out_str += f'R:\n {np.array_str(np.array(self._R), precision=4)}\n'
         return out_str

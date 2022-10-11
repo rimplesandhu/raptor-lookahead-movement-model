@@ -184,7 +184,7 @@ class KalmanFilterBase(ABC):
 
     def _store_this_step(self, update: bool = False) -> None:
         """Store this forecast/update step"""
-        self._time_elapsed = np.around(self.time_elapsed, 4)
+        self._time_elapsed = np.around(self.time_elapsed, 3)
         if update:
             for k, v in self._history.items():
                 if not k.startswith('Smoother'):
@@ -215,7 +215,6 @@ class KalmanFilterBase(ABC):
 
 
 ### abstract methods to be implemented by children of this base class ###
-
 
     @abstractmethod
     def validate(self) -> None:
@@ -287,7 +286,6 @@ class KalmanFilterBase(ABC):
 
 
 ### Plotting related ###
-
 
     def plot_state_mean(
         self,
@@ -446,6 +444,7 @@ class KalmanFilterBase(ABC):
 
 ### Getter for private class variables at last update/forecast###
 
+
     @ property
     def nx(self) -> int:
         """Dimension of state space"""
@@ -579,7 +578,6 @@ class KalmanFilterBase(ABC):
 
 
 ### Getter/Setter for matrices of dynamics model###
-
 
     @ property
     def F(self) -> ndarray:
