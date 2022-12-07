@@ -216,6 +216,7 @@ class KalmanFilterBase(ABC):
 
 ### abstract methods to be implemented by children of this base class ###
 
+
     @abstractmethod
     def validate(self) -> None:
         """Check if relevant matrices and/or functions have been initiated"""
@@ -286,6 +287,7 @@ class KalmanFilterBase(ABC):
 
 
 ### Plotting related ###
+
 
     def plot_state_mean(
         self,
@@ -444,7 +446,6 @@ class KalmanFilterBase(ABC):
 
 ### Getter for private class variables at last update/forecast###
 
-
     @ property
     def nx(self) -> int:
         """Dimension of state space"""
@@ -538,6 +539,8 @@ class KalmanFilterBase(ABC):
             dff[cname] = self.df[cname]
         dff[dff.select_dtypes(np.float64).columns] = dff.select_dtypes(
             np.float64).astype(np.float32)
+        dff[dff.select_dtypes(np.int64).columns] = dff.select_dtypes(
+            np.int64).astype(np.int32)
         return dff
 
 ### Getter/Setter for Truth and observations###
@@ -578,6 +581,7 @@ class KalmanFilterBase(ABC):
 
 
 ### Getter/Setter for matrices of dynamics model###
+
 
     @ property
     def F(self) -> ndarray:

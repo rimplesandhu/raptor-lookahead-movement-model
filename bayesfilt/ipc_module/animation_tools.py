@@ -49,8 +49,8 @@ def animate_this_truth(idf, iax, clr, box_fill=True, t_buffer=0.02):
     """Animate this dataframe"""
     #eltime = np.around(idf['TimeElapsed'].values, 1)
     eltime = idf['TimeElapsed'].values
-    xloc = idf['X'].copy().values
-    yloc = idf['Y'].copy().values
+    xloc = idf['PositionX'].copy().values
+    yloc = idf['PositionY'].copy().values
     # if 'SDnorthd' in idf.columns:
     #     xloc_var = idf['SDnorth'].copy().values**2
     #     yloc_var = idf['SDeast'].copy().values**2
@@ -59,8 +59,8 @@ def animate_this_truth(idf, iax, clr, box_fill=True, t_buffer=0.02):
     #     alphas = np.clip(alphas, 0.9, 1.0)
     # else:
     alphas = None
-    length = idf['Length'].copy().values
-    width = idf['Width'].copy().values
+    length = idf['Length'].values if 'Yaw' in idf.columns else None
+    width = idf['Width'].values if 'Yaw' in idf.columns else None
     angle = idf['Yaw'].values if 'Yaw' in idf.columns else None
     return animate_this_source(iax, eltime, xloc, yloc, angle,
                                width, length, None, clr,
