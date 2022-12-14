@@ -1,5 +1,6 @@
 """Classes for defining an observation model"""
 from abc import abstractmethod
+from typing import List
 import numpy as np
 from numpy import ndarray
 from .state_space_model import StateSpaceModel
@@ -13,69 +14,23 @@ class ObservationModel(StateSpaceModel):
         self,
         nx: int,
         ny: int,
-        name: str = 'obs_model',
-        observed: dict | None = None
+        name: str = 'ObservationModel'
     ) -> None:
 
         # model parameters
         super().__init__(nx=nx, name=name)
-        self._ny = self.int_setter(ny)  # dim of obs vector
-        self._observed = observed  # obs-state indices pair
-        self._labels = [f'y_{i}' for i in range(self.nx)]
+        self._ny = self.int_setter(ny)  # dimension of observation vector
+        self._obs_names = [f'y_{i}' for i in range(self.ny)]
 
         # model matrices
         self._H: ndarray | None = None  # Observation-State matrix
         self._J: ndarray | None = None  # Error Jacobian matrix
         self._R: ndarray | None = None  # Error covariance matrix
 
-        if self.observed is not None:
-            if max(self.observed.keys()) >= self.nx:
-                self.raiseit(f'Max state index cannot exceed {self.nx-1}')
-            if max(self.observed.values()) >= self.ny:
-                self.raiseit(f'Max obs index cannot exceed {self.ny-1}')
-
-    @abstractmethod
-    def update(
-        self,
-        sigmas: ndarray,
-        R: ndarray,
-        w: ndarray
-    ) -> None:
-        """Update system parameters"""
-
-    @abstractmethod
-    def h(
-        self,
-        x: ndarray | None,
-        r: ndarray | None
-    ) -> ndarray:
-        """Measurement equation"""
-
-    @abstractmethod
-    def compute_H(
-        self,
-        x: ndarray | None,
-        r: ndarray | None
-    ) -> ndarray:
-        """Get H matrix"""
-
-    @abstractmethod
-    def compute_J(
-        self,
-        x: ndarray | None,
-        r: ndarray | None
-    ) -> ndarray:
-        """Get J matrix"""
-
     @property
     def ny(self) -> int:
         """Dimension of observation space """
         return self._ny
-
-    @property
-    def observed(self) -> dict:
-        """Getter for observation-state pair"""
-        return self._observed
 
     @property
     def H(self) -> ndarray:
@@ -92,23 +47,22 @@ class ObservationModel(StateSpaceModel):
         """Measurement error covariance matrix"""
         return self._R
 
+    @R.setter
+    def R(self, in_mat: ndarray) -> ndarray:
+        """Measurement error covariance matrix"""
+        self._R = self.mat_setter(in_mat, (self.ny, self.ny))
+        assert self.check_symmetric(self.R), f'{self.name}: R not symmetric!'
+        # if not self.check_symmetric(self.R):
+        #     print(f'{self.name}: R matrix not symmetric!')
+
     @property
-    def labels(self) -> list[str]:
+    def obs_names(self) -> list[str]:
         """Getter for labels"""
-        return self._labels
+        return self._obs_names
 
-    @labels.setter
-    def labels(self, in_list) -> None:
+    @obs_names.setter
+    def obs_names(self, in_list) -> None:
         """Setter for labels"""
-        if len(in_list) != self.nx:
-            self.raiseit(f'Number of labels should be {self.nx}')
-        self._labels = in_list
-
-    def __str__(self):
-        out_str = f':::{self.name}\n'
-        out_str += f'State Dimension: {self._nx}\n'
-        out_str += f'Observation Dimension: {self._ny}\n'
-        out_str += f'H:\n {np.array_str(np.array(self._H), precision=4)}\n'
-        out_str += f'J:\n {np.array_str(np.array(self._J), precision=4)}\n'
-        out_str += f'R:\n {np.array_str(np.array(self._R), precision=4)}\n'
-        return out_str
+        if len(in_list) != self.ny:
+            self.raiseit(f'Number of observation labels should be {self.ny}')
+        self._obs_names = in_list

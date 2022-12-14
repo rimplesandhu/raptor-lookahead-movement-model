@@ -1,5 +1,6 @@
-"""Base class for defining motion models"""
+"""Base class for defining state space models"""
 from abc import ABC, abstractmethod
+from typing import Dict, List
 import numpy as np
 from numpy import ndarray
 
@@ -15,16 +16,65 @@ class StateSpaceModel(ABC):
     ) -> None:
         self.name: str = name  # name of the model
         self._nx: int = self.int_setter(nx)  # dimension of the state
-        self._w: ndarray | None = None  # static model parameters
-        self._sigmas: ndarray | None = None  # error parameters
+        self._state_names = [f'x_{i}' for i in range(self.nx)]
+        self._phi = {k: None for k, _ in self.phi_definition.items()}
 
-    @staticmethod
+    @property
+    @abstractmethod
+    def phi_definition(self):
+        """Declare parameter names of the model"""
+
+    def _print_info(self):
+        out_str = f'----{self.name}----\n'
+        out_str += 'State: ' + ', '.join(self.state_names) + '\n'
+        out_str += 'Parameters: '
+        out_str += ', '.join([f'{k}={v}' for k, v in self.phi.items()]) + '\n'
+        return out_str
+
+    @property
+    def phi(self) -> Dict[str, float]:
+        """Getter for model parameter vector w"""
+        return self._phi
+
+    @phi.setter
+    def phi(self, iz) -> None:
+        """Getter for model parameter vector w"""
+        for k, v in self.phi_definition.items():
+            assert k in iz, self.raiseit(f'Cant find {k} in {iz}')
+            istr = f'Incorrect size for parameter {k}, required size {v}, '
+            istr += f'input size {np.array(iz[k]).size}'
+            assert int(v) == np.array(iz[k]).size, self.raiseit(istr)
+        self._phi = {k: v for k, v in iz.items() if k in self.phi_definition}
+
+    @ property
+    def nx(self) -> int:
+        """Getter for state dimension"""
+        return self._nx
+
+    @ property
+    def state_names(self) -> List[str]:
+        """Getter for state names"""
+        return self._state_names
+
+    @ state_names.setter
+    def state_names(self, in_list) -> None:
+        """Setter for state names"""
+        if len(in_list) != self.nx:
+            self.raiseit(f'Number of state labels should be {self.nx}')
+        self._state_names = in_list
+
+    @ staticmethod
     def symmetrize(in_mat: ndarray) -> ndarray:
         """Return a symmetrized version of NumPy array"""
         if np.any(np.isnan(in_mat)) or np.any(in_mat.diagonal() < 0.):
             print('\np update went wrong!')
             print(in_mat.diagonal())
         return (in_mat + in_mat.T) / 2.
+
+    @ staticmethod
+    def check_symmetric(a: ndarray, rtol=1e-05, atol=1e-08):
+        """check if matrix is symmetric or not"""
+        return np.allclose(a, a.T, rtol=rtol, atol=atol)
 
     def mat_setter(self, in_mat, to_shape=None) -> ndarray:
         """Returns a valid numpy array2d while checking for its shape"""
@@ -64,18 +114,3 @@ class StateSpaceModel(ABC):
     def raiseit(self, outstr: str = "") -> None:
         """Raise exception with the out string"""
         raise ValueError(f'{self.name}: {outstr}')
-
-    @property
-    def w(self) -> ndarray:
-        """Getter for model parameter vector w"""
-        return self._w
-
-    @property
-    def sigmas(self) -> ndarray:
-        """Getter for error stds"""
-        return self._sigmas
-
-    @property
-    def nx(self) -> int:
-        """Getter for state dimension"""
-        return self._nx

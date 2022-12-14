@@ -1,300 +1,92 @@
-"""Classes for defining linear observation models """
-import numpy as np
-from numpy import ndarray
-from .observation_model import ObservationModel
+# """Classes for defining an observation model"""
+# from abc import abstractmethod
+# from typing import List
+# import numpy as np
+# from numpy import ndarray
+# from .state_space_model import StateSpaceModel
 
 
-class CTRAobs1(ObservationModel):
-    # pylint: disable=invalid-name
-    """Class for defining a linear observation model"""
+# class ObservationModel(StateSpaceModel):
+#     # pylint: disable=invalid-name
+#     """Class for defining an observation model"""
 
-    def __init__(
-        self,
-    ) -> None:
+#     def __init__(
+#         self,
+#         nx: int,
+#         ny: int,
+#         name: str = 'ObsModel'
+#     ) -> None:
 
-        super().__init__(nx=6, ny=2, name='CTRA-TEL2')
-        self._H: ndarray = np.zeros((self._ny, self._nx))  # obs function
+#         # model parameters
+#         super().__init__(nx=nx, name=name)
+#         self._ny = self.int_setter(ny)  # dim of obs vector
+#         self._obs_names = [f'y_{i}' for i in range(self.ny)]
 
-    def update(
-        self,
-        sigmas: ndarray | None = None,
-        R: ndarray | None = None,
-        w: ndarray | None = None
-    ) -> None:
-        """Update system parameters"""
-        if R is not None:
-            self._R = self.mat_setter(R, (self.ny, self.ny))
-        else:
-            self._sigmas = self.vec_setter(sigmas, self.ny)
-            self._R = np.diag(self.sigmas**2)
-        self._J = np.eye(self.ny)
+#         # model matrices
+#         self._H: ndarray | None = None  # Observation-State matrix
+#         self._J: ndarray | None = None  # Error Jacobian matrix
+#         self._R: ndarray | None = None  # Error covariance matrix
 
-    def h(
-        self,
-        x: ndarray | None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Measurement equation"""
-        x = self.vec_setter(x, self.nx)
-        out_y = np.zeros((self.ny,))
-        out_y[0] = x[0]
-        out_y[1] = x[1]
-        # out_y[2] = np.arctan2(x[2], x[3]) % (2.0 * np.pi)
-        # out_y[3] = np.sqrt(x[2]**2 + x[3]**2)
-        if r is not None:
-            r = self.vec_setter(r, self.ny)
-            out_y += r
-        return out_y
+#     @abstractmethod
+#     def h(
+#         self,
+#         x: ndarray | None,
+#         r: ndarray | None
+#     ) -> ndarray:
+#         """Measurement equation"""
 
-    def compute_H(
-        self,
-        x: ndarray | None = None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Get H matrix"""
-        return self.H
+#     @abstractmethod
+#     def compute_H(
+#         self,
+#         x: ndarray | None,
+#         r: ndarray | None
+#     ) -> ndarray:
+#         """Get H matrix"""
 
-    def compute_J(
-        self,
-        x: ndarray | None = None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Get J matrix"""
-        return self.J
+#     @abstractmethod
+#     def compute_J(
+#         self,
+#         x: ndarray | None,
+#         r: ndarray | None
+#     ) -> ndarray:
+#         """Get J matrix"""
 
+#     @property
+#     def ny(self) -> int:
+#         """Dimension of observation space """
+#         return self._ny
 
-class CTRAobs2(ObservationModel):
-    # pylint: disable=invalid-name
-    """Class for defining a linear observation model"""
+#     @property
+#     def H(self) -> ndarray:
+#         """Measurement-State matrix"""
+#         return self._H
 
-    def __init__(
-        self,
-    ) -> None:
+#     @property
+#     def J(self) -> ndarray:
+#         """Measurement matrix"""
+#         return self._J
 
-        super().__init__(nx=6, ny=4, name='CTRA-TEL3')
-        self._H: ndarray = np.zeros((self._ny, self._nx))  # obs function
+#     @property
+#     def R(self) -> ndarray:
+#         """Measurement error covariance matrix"""
+#         return self._R
 
-    def update(
-        self,
-        sigmas: ndarray | None = None,
-        R: ndarray | None = None,
-        w: ndarray | None = None
-    ) -> None:
-        """Update system parameters"""
-        if R is not None:
-            self._R = self.mat_setter(R, (self.ny, self.ny))
-        else:
-            self._sigmas = self.vec_setter(sigmas, self.ny)
-            self._R = np.diag(self.sigmas**2)
-        self._J = np.eye(self.ny)
+#     @property
+#     def obs_names(self) -> list[str]:
+#         """Getter for labels"""
+#         return self._obs_names
 
-    def h(
-        self,
-        x: ndarray | None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Measurement equation"""
-        x = self.vec_setter(x, self.nx)
-        out_y = np.zeros((self.ny,))
-        out_y[0] = x[0]
-        out_y[1] = x[1]
-        out_y[2] = np.arctan2(x[2], x[3]) % (2.0 * np.pi)
-        out_y[3] = np.sqrt(x[2]**2 + x[3]**2)
-        if r is not None:
-            r = self.vec_setter(r, self.ny)
-            out_y += r
-        return out_y
+#     @obs_names.setter
+#     def obs_names(self, in_list) -> None:
+#         """Setter for labels"""
+#         if len(in_list) != self.ny:
+#             self.raiseit(f'Number of labels should be {self.ny}')
+#         self._obs_names = in_list
 
-    def compute_H(
-        self,
-        x: ndarray | None = None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Get H matrix"""
-        return self.H
-
-    def compute_J(
-        self,
-        x: ndarray | None = None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Get J matrix"""
-        return self.J
-
-
-class CA2D_TEL1(ObservationModel):
-    # pylint: disable=invalid-name
-    """Class for defining a linear observation model"""
-
-    def __init__(
-        self,
-    ) -> None:
-
-        super().__init__(nx=6, ny=4, name='CA2DTEL3')
-        self._H: ndarray = np.zeros((self._ny, self._nx))  # obs function
-
-    def update(
-        self,
-        sigmas: ndarray | None = None,
-        R: ndarray | None = None,
-        w: ndarray | None = None
-    ) -> None:
-        """Update system parameters"""
-        if R is not None:
-            self._R = self.mat_setter(R, (self.ny, self.ny))
-        else:
-            self._sigmas = self.vec_setter(sigmas, self.ny)
-            self._R = np.diag(self.sigmas**2)
-        self._J = np.eye(self.ny)
-
-    def h(
-        self,
-        x: ndarray | None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Measurement equation"""
-        x = self.vec_setter(x, self.nx)
-        out_y = np.zeros((self.ny,))
-        out_y[0] = x[0]
-        out_y[1] = x[3]
-        out_y[2] = np.arctan2(x[1], x[4]) % (2.0 * np.pi)
-        out_y[3] = np.sqrt(x[1]**2 + x[4]**2)
-        if r is not None:
-            r = self.vec_setter(r, self.ny)
-            out_y += r
-        return out_y
-
-    def compute_H(
-        self,
-        x: ndarray | None = None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Get H matrix"""
-        return self.H
-
-    def compute_J(
-        self,
-        x: ndarray | None = None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Get J matrix"""
-        return self.J
-
-
-class CA2D_TEL2(ObservationModel):
-    # pylint: disable=invalid-name
-    """Class for defining a linear observation model"""
-
-    def __init__(
-        self,
-    ) -> None:
-
-        super().__init__(nx=6, ny=2, name='CA2DTEL3')
-        self._H: ndarray = np.zeros((self._ny, self._nx))  # obs function
-
-    def update(
-        self,
-        sigmas: ndarray | None = None,
-        R: ndarray | None = None,
-        w: ndarray | None = None
-    ) -> None:
-        """Update system parameters"""
-        if R is not None:
-            self._R = self.mat_setter(R, (self.ny, self.ny))
-        else:
-            self._sigmas = self.vec_setter(sigmas, self.ny)
-            self._R = np.diag(self.sigmas**2)
-        self._J = np.eye(self.ny)
-
-    def h(
-        self,
-        x: ndarray | None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Measurement equation"""
-        x = self.vec_setter(x, self.nx)
-        out_y = np.zeros((self.ny,))
-        out_y[0] = x[0]
-        out_y[1] = x[3]
-        # out_y[2] = np.arctan2(x[1], x[4]) % (2.0 * np.pi)
-        # out_y[3] = np.sqrt(x[1]**2 + x[4]**2)
-        if r is not None:
-            r = self.vec_setter(r, self.ny)
-            out_y += r
-        return out_y
-
-    def compute_H(
-        self,
-        x: ndarray | None = None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Get H matrix"""
-        return self.H
-
-    def compute_J(
-        self,
-        x: ndarray | None = None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Get J matrix"""
-        return self.J
-
-
-class CA3D_TEL(ObservationModel):
-    # pylint: disable=invalid-name
-    """Class for defining a linear observation model"""
-
-    def __init__(
-        self,
-    ) -> None:
-
-        super().__init__(nx=9, ny=5, name='CA2DTEL3')
-        self._H: ndarray = np.zeros((self._ny, self._nx))  # obs function
-
-    def update(
-        self,
-        sigmas: ndarray | None = None,
-        R: ndarray | None = None,
-        w: ndarray | None = None
-    ) -> None:
-        """Update system parameters"""
-        if R is not None:
-            self._R = self.mat_setter(R, (self.ny, self.ny))
-        else:
-            self._sigmas = self.vec_setter(sigmas, self.ny)
-            self._R = np.diag(self.sigmas**2)
-        self._J = np.eye(self.ny)
-
-    def h(
-        self,
-        x: ndarray | None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Measurement equation"""
-        x = self.vec_setter(x, self.nx)
-        out_y = np.zeros((self.ny,))
-        out_y[0] = x[0]
-        out_y[1] = x[3]
-        out_y[2] = x[6]
-        out_y[3] = np.arctan2(x[1], x[4]) % (2.0 * np.pi)
-        out_y[4] = np.sqrt(x[1]**2 + x[4]**2)
-        if r is not None:
-            r = self.vec_setter(r, self.ny)
-            out_y += r
-        return out_y
-
-    def compute_H(
-        self,
-        x: ndarray | None = None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Get H matrix"""
-        return self.H
-
-    def compute_J(
-        self,
-        x: ndarray | None = None,
-        r: ndarray | None = None
-    ) -> ndarray:
-        """Get J matrix"""
-        return self.J
+#     def __str__(self):
+#         out_str = super()._print_info()
+#         out_str += f'Observation Dimension: {self._ny}\n'
+#         out_str += f'H:\n {np.array_str(np.array(self._H), precision=4)}\n'
+#         out_str += f'J:\n {np.array_str(np.array(self._J), precision=4)}\n'
+#         out_str += f'R:\n {np.array_str(np.array(self._R), precision=4)}\n'
+#         return out_str

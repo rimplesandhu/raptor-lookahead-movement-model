@@ -1,5 +1,6 @@
 """ Kalman filter base class """
 from collections.abc import Sequence, Callable
+from typing import Dict
 from abc import ABC, abstractmethod
 from copy import deepcopy
 import numpy as np
@@ -36,6 +37,7 @@ class KalmanFilterBase(ABC):
         self._P: ndarray | None = None  # state covariance matrix
         self._truth: ndarray | None = None
         self._obs: ndarray | None = None
+        self._pars: Dict[str, float] = {}
 
         # dynamics model
         self.f: Callable | None = None  # state transition function
@@ -150,9 +152,9 @@ class KalmanFilterBase(ABC):
                 k += 1
             else:
                 self.forecast()
-            if np.any(np.linalg.eigvals(self.P) < 0):
-                print('Exiting because covariance is not pos def!')
-                break
+                if np.any(np.linalg.eigvals(self.P) < 0):
+                    print('Exiting because covariance is not pos def!')
+                    break
 
     def smoother(self):
         """Run smoothing assuming model/measurement eq are time invariant"""
@@ -215,7 +217,6 @@ class KalmanFilterBase(ABC):
 
 
 ### abstract methods to be implemented by children of this base class ###
-
 
     @abstractmethod
     def validate(self) -> None:
@@ -288,7 +289,6 @@ class KalmanFilterBase(ABC):
 
 ### Plotting related ###
 
-
     def plot_state_mean(
         self,
         state_index: int,
@@ -305,7 +305,7 @@ class KalmanFilterBase(ABC):
         cb = ax.plot(tvec, xvec, *args, **kwargs)
         ax.set_ylabel(f'{self.labels[state_index]}')
         ax.set_xlim([tvec[0], tvec[-1]])
-        ax.set_xlabel('Time elapsed (Seconds)')
+        #ax.set_xlabel('Time elapsed (Seconds)')
         return cb
 
     def plot_state_cbound(
@@ -446,6 +446,7 @@ class KalmanFilterBase(ABC):
 
 ### Getter for private class variables at last update/forecast###
 
+
     @ property
     def nx(self) -> int:
         """Dimension of state space"""
@@ -546,6 +547,16 @@ class KalmanFilterBase(ABC):
 ### Getter/Setter for Truth and observations###
 
     @ property
+    def pars(self) -> Sequence:
+        """Static parameters"""
+        return self._pars
+
+    @ pars.setter
+    def pars(self, in_dict: Sequence) -> None:
+        """Setter for state transition matrix"""
+        self._pars = in_dict
+
+    @ property
     def truth(self) -> ndarray:
         """State truth"""
         return self._truth
@@ -581,7 +592,6 @@ class KalmanFilterBase(ABC):
 
 
 ### Getter/Setter for matrices of dynamics model###
-
 
     @ property
     def F(self) -> ndarray:

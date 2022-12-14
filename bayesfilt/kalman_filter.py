@@ -29,7 +29,7 @@ class KalmanFilter(KalmanFilterBase):
     def forecast(self) -> None:
         """Kalman filter forecast step"""
         super().forecast()
-        self._m = self.F @ self.m
+        self._m = self.qbar + self.F @ self.m
         self._P = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
         self._store_this_step()
 
