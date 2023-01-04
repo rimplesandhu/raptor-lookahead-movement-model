@@ -1,8 +1,7 @@
 """Classes for defining an observation model"""
-from abc import abstractmethod
-from typing import List
-import numpy as np
+from collections.abc import Callable
 from numpy import ndarray
+import numpy as np
 from .state_space_model import StateSpaceModel
 
 
@@ -23,9 +22,18 @@ class ObservationModel(StateSpaceModel):
         self._obs_names = [f'y_{i}' for i in range(self.ny)]
 
         # model matrices
-        self._H: ndarray | None = None  # Observation-State matrix
-        self._J: ndarray | None = None  # Error Jacobian matrix
-        self._R: ndarray | None = None  # Error covariance matrix
+        self._H: ndarray | Callable | None = None  # Observation-State matrix
+        self._J: ndarray | Callable | None = None  # Error Jacobian matrix
+        self._R: ndarray | Callable | None = None  # Error covariance matrix
+
+    def __str__(self):
+        out_str = StateSpaceModel.__str__(self)
+        out_str += f'Observations({self.ny}): ' + \
+            ', '.join(self.obs_names) + '\n'
+        out_str += f'H:\n {np.array_str(np.array(self.H), precision=3)}\n'
+        out_str += f'J:\n {np.array_str(np.array(self.J), precision=3)}\n'
+        out_str += f'R:\n {np.array_str(np.array(self.R), precision=3)}\n'
+        return out_str
 
     @property
     def ny(self) -> int:

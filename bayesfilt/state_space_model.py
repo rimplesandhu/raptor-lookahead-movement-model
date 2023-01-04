@@ -1,55 +1,76 @@
 """Base class for defining state space models"""
-from abc import ABC, abstractmethod
+# pylint: disable=invalid-name
+from abc import ABC, abstractmethod, abstractproperty
 from typing import Dict, List
+import warnings
 import numpy as np
 from numpy import ndarray
 
 
+class ParameterDict(dict):
+    """Class for defining parameter dictionary"""
+
+    def __init__(self, list_of_names):
+        super().__init__({k: None for k in list_of_names})
+
+    def __getitem__(self, key):
+        return dict.__getitem__(self, key)
+
+    def __setitem__(self, key, val):
+        #istr = f'Parameter {key} not found! Choose from {list(self.keys())}'
+        #assert key in self.keys(), istr
+        dict.__setitem__(self, key, val)
+
+    def update(self, *args, **kwargs):
+        for k, v in dict(*args, **kwargs).items():
+            self[k] = v
+
+    def __repr__(self):
+        return dict.__repr__(self)
+
+
 class StateSpaceModel(ABC):
-    # pylint: disable=invalid-name
     """Base class for defining a state space model"""
 
     def __init__(
         self,
         nx: int,
-        name: str
+        name: str = 'StateSpaceModel'
     ) -> None:
         self.name: str = name  # name of the model
         self._nx: int = self.int_setter(nx)  # dimension of the state
         self._state_names = [f'x_{i}' for i in range(self.nx)]
-        self._phi = {k: None for k, _ in self.phi_definition.items()}
+        self._phi = ParameterDict(self.phi_names)  # parameter dict
 
-    @property
-    @abstractmethod
-    def phi_definition(self):
-        """Declare parameter names of the model"""
-
-    def _print_info(self):
+    def __str__(self):
         out_str = f'----{self.name}----\n'
-        out_str += 'State: ' + ', '.join(self.state_names) + '\n'
-        out_str += 'Parameters: '
+        out_str += f'State({self.nx}): ' + ', '.join(self.state_names) + '\n'
+        out_str += f'Parameters({len(self.phi_names)}): '
         out_str += ', '.join([f'{k}={v}' for k, v in self.phi.items()]) + '\n'
         return out_str
 
+# abstact methods
+    @property
+    @abstractmethod
+    def phi_names(self):
+        """Child class must define the names of static parameters"""
+
+# getter/setters
     @property
     def phi(self) -> Dict[str, float]:
         """Getter for model parameter vector w"""
         return self._phi
 
     @phi.setter
-    def phi(self, iz) -> None:
+    def phi(self, in_dict) -> None:
         """Getter for model parameter vector w"""
-        for k, v in self.phi_definition.items():
-            assert k in iz, self.raiseit(f'Cant find {k} in {iz}')
-            istr = f'Incorrect size for parameter {k}, required size {v}, '
-            istr += f'input size {np.array(iz[k]).size}'
-            assert int(v) == np.array(iz[k]).size, self.raiseit(istr)
-        self._phi = {k: v for k, v in iz.items() if k in self.phi_definition}
-
-    @ property
-    def nx(self) -> int:
-        """Getter for state dimension"""
-        return self._nx
+        if not isinstance(in_dict, dict):
+            self.raiseit(f'Input {in_dict} should be a dict!')
+        for k, v in in_dict.items():
+            if k not in self.phi_names:
+                self.warnit(f'Parameter -{k}- not found in {self.phi_names}!')
+            else:
+                self._phi[k] = v
 
     @ property
     def state_names(self) -> List[str]:
@@ -63,7 +84,16 @@ class StateSpaceModel(ABC):
             self.raiseit(f'Number of state labels should be {self.nx}')
         self._state_names = in_list
 
-    @ staticmethod
+# property
+
+    @ property
+    def nx(self) -> int:
+        """Getter for state dimension"""
+        return self._nx
+
+# static methods
+
+    @staticmethod
     def symmetrize(in_mat: ndarray) -> ndarray:
         """Return a symmetrized version of NumPy array"""
         if np.any(np.isnan(in_mat)) or np.any(in_mat.diagonal() < 0.):
@@ -71,10 +101,12 @@ class StateSpaceModel(ABC):
             print(in_mat.diagonal())
         return (in_mat + in_mat.T) / 2.
 
-    @ staticmethod
+    @staticmethod
     def check_symmetric(a: ndarray, rtol=1e-05, atol=1e-08):
         """check if matrix is symmetric or not"""
         return np.allclose(a, a.T, rtol=rtol, atol=atol)
+
+# functions
 
     def mat_setter(self, in_mat, to_shape=None) -> ndarray:
         """Returns a valid numpy array2d while checking for its shape"""
@@ -114,3 +146,7 @@ class StateSpaceModel(ABC):
     def raiseit(self, outstr: str = "") -> None:
         """Raise exception with the out string"""
         raise ValueError(f'{self.name}: {outstr}')
+
+    def warnit(self, outstr: str = "") -> None:
+        """Raise warning with the out string"""
+        warnings.warn(f'{self.name}: {outstr}')

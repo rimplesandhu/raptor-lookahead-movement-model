@@ -24,24 +24,26 @@ class UnscentedKalmanFilter(KalmanFilterBase):
     def validate(self) -> None:
         """Check if system matrices/functions are initiated"""
         super().validate()
-        if (self.f is None) and (self.F is None):
+        if (self.func_f is None) and (self.F is None):
             self.raiseit('UKF: Need to define either function f() or matrix F')
-        if (self.h is None) and (self.H is None):
+        if (self.func_h is None) and (self.H is None):
             self.raiseit('UKF: Need to define either function h() or matrix H')
 
     def forecast(self) -> None:
         """UKF forecast step"""
         super().forecast()
         # print('----', self.time_elapsed)
+        Qmat = self.func_Q(self.m) if self.Q is None else self.Q
+        Qmat = self.symmetrize(Qmat) + np.diag([self.epsilon] * self.nx)
         if self.F is None:
-            self._m, new_P, _ = self.ut.transform(self.m, self.P, self.f,
-                                                  self.x_subtract,
-                                                  self.x_subtract,
-                                                  self.x_mean_fn)
+            self._m, new_P, _ = self.ut.transform(
+                self.m, self.P, self.func_f,
+                self.x_subtract, self.x_subtract, self.x_mean_fn
+            )
         else:
-            self._m = self.F @ self.m
+            self._m = self.F @ self.m + self.qbar
             new_P = self.F @ self.P @ self.F.T
-        new_P += self.G @ self.Q @ self.G.T
+        new_P += self.G @ Qmat @ self.G.T
         new_P = self.symmetrize(new_P) + np.diag([self.epsilon] * self.nx)
         if not np.any(np.linalg.eigvals(new_P) < 0):
             self._P = new_P
@@ -50,10 +52,10 @@ class UnscentedKalmanFilter(KalmanFilterBase):
     def update(self) -> None:
         """UKF update step"""
         if self.H is None:
-            y_pred, Smat, Pxy = self.ut.transform(self.m, self.P, self.h,
-                                                  self.x_subtract,
-                                                  self.y_subtract,
-                                                  self.y_mean_fn)
+            y_pred, Smat, Pxy = self.ut.transform(
+                self.m, self.P, self.func_h,
+                self.x_subtract, self.y_subtract, self.y_mean_fn
+            )
         else:
             y_pred = self.H @ self.m
             Smat = self.H @ self.P @ self.H.T
@@ -68,7 +70,7 @@ class UnscentedKalmanFilter(KalmanFilterBase):
         self._P = Tmat @ self.P @ Tmat.T + Kmat @ self.R @ Kmat.T  # Joseph
         # self._P -= Kmat @ Smat @ Kmat.T
         self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
-        Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
+        Pmat_inv = np.linalg.pinv(self.P, hermitian=True, rcond=1e-10)
         self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
         self._store_this_step(update=True)
 
@@ -76,23 +78,23 @@ class UnscentedKalmanFilter(KalmanFilterBase):
         """Backward filter"""
         if self.F is None:
             mhat, Phat, Cmat = self.ut.transform(
-                self.m, self.P, self.f,
+                self.m, self.P, self.func_f,
                 self.x_subtract, self.x_subtract, self.x_mean_fn)
         else:
             mhat = self.F @ self.m
             Phat = self.F @ self.P @ self.F.T
             Cmat = self.P @ self.F.T
-        Phat += self.G @ self.Q @ self.G.T
-        Dmat = Cmat @ np.linalg.pinv(Phat, hermitian=True)
+        Qmat = self.func_Q(self.m) if self.Q is None else self.Q
+        Phat += self.G @ Qmat @ self.G.T
+        Dmat = Cmat @ np.linalg.pinv(Phat, hermitian=True, rcond=1e-10)
         self._m = self.x_add(self.m, Dmat @ self.x_subtract(smean_next, mhat))
         self._P += Dmat @ (scov_next - Phat) @ Dmat.T
         self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
         if self.obs is not None:
             if self.H is None:
-                y_pred, Smat, Pxy = self.ut.transform(self.m, Phat, self.h,
-                                                      self.x_subtract,
-                                                      self.y_subtract,
-                                                      self.y_mean_fn)
+                y_pred, Smat, Pxy = self.ut.transform(
+                    self.m, Phat, self.func_h,
+                    self.x_subtract, self.y_subtract, self.y_mean_fn)
             else:
                 y_pred = self.H @ self.m
                 #Smat = self.H @ self.P @ self.H.T

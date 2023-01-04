@@ -11,17 +11,26 @@ class MotionModel(StateSpaceModel):
     def __init__(
         self,
         nx: int,
-        nq: int | None = None,
         name: str = 'MotionModel'
     ) -> None:
 
         super().__init__(nx=nx, name=name)
-        self._nq = self.nx if nq is None else self.int_setter(nq)
         self._dt: float | None = None  # time interval
-        self._F: ndarray | None = None  # State transition matrix
-        self._G: ndarray | None = None  # Error Jacobian matrix
-        self._Q: ndarray | None = None  # Error covariance matrix
-        self._qbar: ndarray | None = None  # Error mean vector
+        self._F: ndarray = np.zeros((self.nx, self.nx))  # Transition matrix
+        self._Q: ndarray = np.zeros((self.nx, self.nx))  # Covariance matrix
+        self._G: ndarray = np.eye(self.nx)  # Error Jacobian matrix
+        self._qbar: ndarray = np.zeros((self.nx,))  # Error mean vector
+
+    def __str__(self):
+        out_str = StateSpaceModel.__str__(self)
+        out_str += f'dt: {self.dt} second\n'
+        out_str += f'qbar:\n {np.array_str(np.array(self.qbar), precision=3)}\n'
+        out_str += f'F:\n {np.array_str(np.array(self.F), precision=3)}\n'
+        out_str += f'G:\n {np.array_str(np.array(self.G), precision=3)}\n'
+        out_str += f'Q:\n {np.array_str(np.array(self.Q), precision=3)}\n'
+        return out_str
+
+# functions
 
     def subtract_states(self, x0: ndarray, x1: ndarray):
         """Residual function for computing difference among states"""
@@ -33,8 +42,11 @@ class MotionModel(StateSpaceModel):
         """Checks if all the model parameters are initiated"""
         for key, val in self.phi.items():
             if val is None:
-                self.raiseit(f'Parameter {key} not assigned!')
-        assert self.dt is not None, 'Need to assign dt'
+                self.raiseit(f'Parameter -{key}- not assigned!')
+        if self.dt is None:
+            self.raiseit('Need to assign dt')
+
+# property/setters
 
     @property
     def qbar(self) -> float:
@@ -49,11 +61,6 @@ class MotionModel(StateSpaceModel):
         self._qbar = in_list
 
     @property
-    def nq(self) -> int:
-        """Getter for error dimension"""
-        return self._nq
-
-    @property
     def dt(self) -> float:
         """Getter for time interval"""
         return self._dt
@@ -62,6 +69,9 @@ class MotionModel(StateSpaceModel):
     def dt(self, in_val: float) -> float:
         """Getter for time interval"""
         self._dt = self.float_setter(in_val)
+
+
+# Properties
 
     @property
     def F(self) -> ndarray:
@@ -77,17 +87,3 @@ class MotionModel(StateSpaceModel):
     def Q(self) -> ndarray:
         """Getter for error covariance matrix Q"""
         return self._Q
-
-    def _initiate_matrices_to_identity(self):
-        """Initiate all matrices to identity"""
-        self._F = np.eye(self.nx)
-        self._G = np.eye(self.nx)
-        self._Q = np.eye(self.nx)
-        self.qbar = np.zeros((self.nx,))
-
-    def _initiate_matrices_to_zeros(self):
-        """Initiate all matrices to zeros"""
-        self._F = np.zeros((self.nx, self.nx))
-        self._G = np.zeros((self.nx, self.nq))
-        self._Q = np.zeros((self.nq, self.nq))
-        self.qbar = np.zeros((self.nx,))

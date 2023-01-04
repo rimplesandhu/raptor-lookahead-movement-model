@@ -1,5 +1,4 @@
 """Classes for defining linear observation models """
-from abc import abstractmethod
 from typing import List
 import numpy as np
 from numpy import ndarray
@@ -34,19 +33,11 @@ class LinearObservationModel(ObservationModel):
         self._J = np.eye(self.ny)
 
     @property
-    def phi_definition(self):
+    def phi_names(self):
         """Declare parameter names of the model"""
-        return {}
+        return []
 
     @property
     def observed_state_inds(self) -> dict:
         """Getter for observation-state pair"""
         return self._observed_state_inds
-
-    def __str__(self):
-        out_str = super()._print_info()
-        out_str += f'Observated states: {self.observed_state_inds}\n'
-        out_str += f'H:\n {np.array_str(np.array(self._H), precision=4)}\n'
-        out_str += f'J:\n {np.array_str(np.array(self._J), precision=4)}\n'
-        out_str += f'R:\n {np.array_str(np.array(self._R), precision=4)}\n'
-        return out_str
