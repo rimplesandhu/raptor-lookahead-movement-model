@@ -1,1 +1,0 @@
-""" IPC_MODULE package """

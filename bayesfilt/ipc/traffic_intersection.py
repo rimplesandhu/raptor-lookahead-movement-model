@@ -1,5 +1,7 @@
+#!/usr/bin/env python
 """Traffic Intersection class """
 
+# pylint: disable=invalid-name
 from typing import Tuple, Sequence, Optional
 import numpy as np
 import pandas as pd
@@ -14,7 +16,7 @@ warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
 
 
 class TrafficIntersection:
-    """Class defining a traffic intersection"""
+    """Base class defining a traffic intersection"""
 
     def __init__(
         self,
@@ -29,8 +31,28 @@ class TrafficIntersection:
                        (self.extent[2] + self.extent[3]) / 2)
         self.width = (self.extent[1] - self.extent[0],
                       self.extent[3] - self.extent[2])
-        corners = get_corners_from_center_and_width(self.center, self.width)
+        corners = []
+        for ix in [(-1, -1), (1, -1), (1, 1), (-1, 1)]:
+            izipper = zip(self.center, self.width, ix)
+            corners.append([i + j * k for i, j, k in izipper])
+        # left = [ix+iy*iz for ix,iy,iz in zip(self.center, self.width, [1,-1])]
+        # left_bottom = (self.center[0] - self.width[0] / 2, self.center[1] - self.width[1] / 2)
+        # right_bottom = (self.center[0] + self.width[0] / 2, self.center[1] - width[1] / 2)
+        # right_upper = (center[0] + width[0] / 2, center[1] + width[1] / 2)
+        # left_upper = (center[0] - width[0] / 2, center[1] + width[1] / 2)
+        # [left_bottom, right_bottom, right_upper, left_upper]
+
         self.add_polygon_zone('world', corners)
+
+    @property
+    def xbound(self):
+        """Returns bounds in x direction"""
+        return [self.extent[0], self.extent[1]]
+
+    @property
+    def ybound(self):
+        """Returns bounds in x direction"""
+        return [self.extent[2], self.extent[3]]
 
     def add_polygon_zone(
         self,
@@ -156,34 +178,25 @@ class TrafficIntersection:
         return self._df
 
 
-def get_corners_from_center_and_width(
-        center: Tuple[float, float],
-        width: Tuple[float, float]
-) -> Sequence[Tuple[float, float]]:
-    """Get corners of rectangule from center and width"""
-    left_bottom = (center[0] - width[0] / 2, center[1] - width[1] / 2)
-    right_bottom = (center[0] + width[0] / 2, center[1] - width[1] / 2)
-    right_upper = (center[0] + width[0] / 2, center[1] + width[1] / 2)
-    left_upper = (center[0] - width[0] / 2, center[1] + width[1] / 2)
-    return [left_bottom, right_bottom, right_upper, left_upper]
-
-    # @df.setter
-    # def df(self, val) -> None:
-    #     asser
-    #     if val.shape != self._df.shape:
-    #         print('KalmanFilter: Shape mismatch while setting P matrix!')
-    #         raise ValueError(f'Desired: {self._P.shape} Input: {val.shape}')
-    #     self._P = val
-
-
-def transform_cartesian(point, angle=0., origin=(0, 0)):
-    """Rotate and translate a cartesian coordinate system """
-    angle_rad = np.radians(angle % 360)
-    # Shift the point so that origin becomes the origin
-    new_point = (point[0] - 0 * origin[0], point[1] - 0 * origin[1])
-    new_point = (new_point[0] * np.cos(angle_rad) - new_point[1] * np.sin(angle_rad),
-                 new_point[0] * np.sin(angle_rad) + new_point[1] * np.cos(angle_rad))
-    # Reverse the shifting we have done
-    new_point = (new_point[0] + origin[0],
-                 new_point[1] + origin[1])
-    return new_point
+def get_csprings_parking_lot():
+    """Colorado springs parking lot"""
+    silver_pole_coords = (0, 0)
+    silver_pole_hor_angle = 60.  # from north
+    black_pole_coords = (-2, 2)
+    black_pole_hor_angle = 85  # from north
+    radar_fov = 110  # degrees
+    radar_range = 100.
+    cs = TrafficIntersection(extent=[-40, 80, -10, 110])
+    cs.add_circular_zone('radar_silver', silver_pole_coords, ztype='radar')
+    cs.add_circular_zone('radar_black', black_pole_coords, ztype='radar')
+    cs.add_arc_zone('radar_silver_coverage', silver_pole_coords,
+                    radius=radar_range,
+                    start_angle=silver_pole_hor_angle - radar_fov / 2,
+                    end_angle=silver_pole_hor_angle + radar_fov / 2,
+                    ztype='radar_coverage', reverse=False)
+    cs.add_arc_zone('radar_black_coverage', black_pole_coords,
+                    radius=radar_range,
+                    start_angle=black_pole_hor_angle - radar_fov / 2,
+                    end_angle=black_pole_hor_angle + radar_fov / 2,
+                    ztype='radar_coverage', reverse=False)
+    return cs

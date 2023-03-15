@@ -1,5 +1,5 @@
 """Classes for defining an observation model"""
-from collections.abc import Callable
+from typing import Callable, List
 from numpy import ndarray
 import numpy as np
 from .state_space_model import StateSpaceModel
@@ -13,13 +13,16 @@ class ObservationModel(StateSpaceModel):
         self,
         nx: int,
         ny: int,
-        name: str = 'ObservationModel'
+        ignore_inds_for_loglik: List[int] | None = None,
+        name: str = 'ObservationModel',
+        verbose: bool = False
     ) -> None:
 
         # model parameters
-        super().__init__(nx=nx, name=name)
+        super().__init__(nx=nx, name=name, verbose=verbose)
         self._ny = self.int_setter(ny)  # dimension of observation vector
         self._obs_names = [f'y_{i}' for i in range(self.ny)]
+        self.ignore_inds_for_loglik = ignore_inds_for_loglik
 
         # model matrices
         self._H: ndarray | Callable | None = None  # Observation-State matrix
@@ -28,11 +31,11 @@ class ObservationModel(StateSpaceModel):
 
     def __str__(self):
         out_str = StateSpaceModel.__str__(self)
-        out_str += f'Observations({self.ny}): ' + \
-            ', '.join(self.obs_names) + '\n'
-        out_str += f'H:\n {np.array_str(np.array(self.H), precision=3)}\n'
-        out_str += f'J:\n {np.array_str(np.array(self.J), precision=3)}\n'
-        out_str += f'R:\n {np.array_str(np.array(self.R), precision=3)}\n'
+        out_str += f'Obs States({self.ny}): ' + ','.join(self.obs_names) + '\n'
+        if self.verbose:
+            out_str += f'H:\n {np.array_str(np.array(self.H), precision=3)}\n'
+            out_str += f'J:\n {np.array_str(np.array(self.J), precision=3)}\n'
+            out_str += f'R:\n {np.array_str(np.array(self.R), precision=3)}\n'
         return out_str
 
     @property

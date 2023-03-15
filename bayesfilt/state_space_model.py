@@ -35,16 +35,19 @@ class StateSpaceModel(ABC):
     def __init__(
         self,
         nx: int,
-        name: str = 'StateSpaceModel'
+        name: str = 'StateSpaceModel',
+        verbose: bool = False
     ) -> None:
         self.name: str = name  # name of the model
         self._nx: int = self.int_setter(nx)  # dimension of the state
         self._state_names = [f'x_{i}' for i in range(self.nx)]
         self._phi = ParameterDict(self.phi_names)  # parameter dict
+        self.verbose = verbose
 
     def __str__(self):
         out_str = f'----{self.name}----\n'
-        out_str += f'State({self.nx}): ' + ', '.join(self.state_names) + '\n'
+        out_str += f'States    ({self.nx}): ' + \
+            ','.join(self.state_names) + '\n'
         out_str += f'Parameters({len(self.phi_names)}): '
         out_str += ', '.join([f'{k}={v}' for k, v in self.phi.items()]) + '\n'
         return out_str

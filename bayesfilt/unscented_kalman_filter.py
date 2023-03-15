@@ -35,6 +35,7 @@ class UnscentedKalmanFilter(KalmanFilterBase):
         # print('----', self.time_elapsed)
         Qmat = self.func_Q(self.m) if self.Q is None else self.Q
         Qmat = self.symmetrize(Qmat) + np.diag([self.epsilon] * self.nx)
+        # print(np.array_str(Qmat, precision=1, suppress_small=True))
         if self.F is None:
             self._m, new_P, _ = self.ut.transform(
                 self.m, self.P, self.func_f,
@@ -43,6 +44,7 @@ class UnscentedKalmanFilter(KalmanFilterBase):
         else:
             self._m = self.F @ self.m + self.qbar
             new_P = self.F @ self.P @ self.F.T
+        # print(np.array_str(new_P, precision=1, suppress_small=True))
         new_P += self.G @ Qmat @ self.G.T
         new_P = self.symmetrize(new_P) + np.diag([self.epsilon] * self.nx)
         if not np.any(np.linalg.eigvals(new_P) < 0):
@@ -87,6 +89,7 @@ class UnscentedKalmanFilter(KalmanFilterBase):
         Qmat = self.func_Q(self.m) if self.Q is None else self.Q
         Phat += self.G @ Qmat @ self.G.T
         Dmat = Cmat @ np.linalg.pinv(Phat, hermitian=True, rcond=1e-10)
+        Dmat = Cmat @ np.linalg.pinv(Phat, hermitian=True)
         self._m = self.x_add(self.m, Dmat @ self.x_subtract(smean_next, mhat))
         self._P += Dmat @ (scov_next - Phat) @ Dmat.T
         self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
@@ -97,9 +100,7 @@ class UnscentedKalmanFilter(KalmanFilterBase):
                     self.x_subtract, self.y_subtract, self.y_mean_fn)
             else:
                 y_pred = self.H @ self.m
-                #Smat = self.H @ self.P @ self.H.T
                 Smat = self.H @ Phat @ self.H.T
-                # Pxy = self.P @ self.H.T
                 Pxy = Phat @ self.H.T
             Smat += self.J @ self.R @ self.J.T
             y_res = self.y_subtract(self.obs, y_pred)

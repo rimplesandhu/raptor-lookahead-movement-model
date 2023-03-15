@@ -13,7 +13,8 @@ class LinearObservationModel(ObservationModel):
         self,
         nx: int,
         observed_state_inds: List[int],
-        name: str = 'LinearObservationModel'
+        name: str = 'LinearObservationModel',
+        verbose: bool = False
     ) -> None:
 
         # initiate
@@ -21,7 +22,8 @@ class LinearObservationModel(ObservationModel):
         super().__init__(
             nx=nx,
             ny=len(observed_state_inds),
-            name=name
+            name=name,
+            verbose=verbose
         )
         if max(self.observed_state_inds) >= nx:
             self.raiseit(f'Max state index > {nx-1}')
@@ -31,6 +33,11 @@ class LinearObservationModel(ObservationModel):
         for k, v in enumerate(self.observed_state_inds):
             self._H[int(k), int(v)] = 1.
         self._J = np.eye(self.ny)
+
+    @property
+    def obs_names(self) -> list[str]:
+        """Getter for labels"""
+        return [self.state_names[i] for i in self.observed_state_inds]
 
     @property
     def phi_names(self):

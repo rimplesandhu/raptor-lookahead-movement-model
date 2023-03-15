@@ -11,10 +11,11 @@ class MotionModel(StateSpaceModel):
     def __init__(
         self,
         nx: int,
-        name: str = 'MotionModel'
+        name: str = 'MotionModel',
+        verbose: bool = False
     ) -> None:
 
-        super().__init__(nx=nx, name=name)
+        super().__init__(nx=nx, name=name, verbose=verbose)
         self._dt: float | None = None  # time interval
         self._F: ndarray = np.zeros((self.nx, self.nx))  # Transition matrix
         self._Q: ndarray = np.zeros((self.nx, self.nx))  # Covariance matrix
@@ -24,10 +25,11 @@ class MotionModel(StateSpaceModel):
     def __str__(self):
         out_str = StateSpaceModel.__str__(self)
         out_str += f'dt: {self.dt} second\n'
-        out_str += f'qbar:\n {np.array_str(np.array(self.qbar), precision=3)}\n'
-        out_str += f'F:\n {np.array_str(np.array(self.F), precision=3)}\n'
-        out_str += f'G:\n {np.array_str(np.array(self.G), precision=3)}\n'
-        out_str += f'Q:\n {np.array_str(np.array(self.Q), precision=3)}\n'
+        if self.verbose:
+            out_str += f'qbar: {np.array_str(np.array(self.qbar), precision=3)}\n'
+            out_str += f'F:\n {np.array_str(np.array(self.F), precision=3)}\n'
+            out_str += f'G:\n {np.array_str(np.array(self.G), precision=3)}\n'
+            out_str += f'Q:\n {np.array_str(np.array(self.Q), precision=3)}\n'
         return out_str
 
 # functions
@@ -72,6 +74,7 @@ class MotionModel(StateSpaceModel):
 
 
 # Properties
+
 
     @property
     def F(self) -> ndarray:

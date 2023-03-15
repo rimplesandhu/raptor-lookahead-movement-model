@@ -34,6 +34,7 @@ class RandomWalk1D(LinearMotionModel):
     def update_matrices(self) -> None:
         """Update system parameters"""
         self._check_if_model_initiated_correctly()
+        self._F[0, 0] = 1.
         self._Q[0, 0] = self.phi['sigma']**2 * self.dt**1 / 1
 
 
@@ -75,7 +76,9 @@ class ConstantVelocity1D(LinearMotionModel):
     def update_matrices(self) -> None:
         """Update system matrices"""
         self._check_if_model_initiated_correctly()
+        self._F[0, 0] = 1.
         self._F[0, 1] = self.dt
+        self._F[1, 1] = 1.
         self._Q[0, 0] = 1. * self.dt**3 / 3
         self._Q[0, 1] = 1. * self.dt**2 / 2
         self._Q[1, 1] = self.dt
@@ -123,6 +126,7 @@ class ConstantAcceleration1D(LinearMotionModel):
     def update_matrices(self) -> None:
         """Update system matrices"""
         self._check_if_model_initiated_correctly()
+        self._F = np.eye(self.nx)
         self._F[0, 1] = self.dt
         self._F[0, 2] = self.dt**2 / 2
         self._F[1, 2] = self.dt
@@ -171,20 +175,24 @@ class CA2DRW2D(LinearMotionModel):
         super().__init__(nx=8, name='CA2D_Shape2D')
         self._motion = ConstantAcceleration(dof=2)
         self._shape = RandomWalk(nx=2)
-        self._state_names = ['X', 'SpeedX', 'AccnX', 'Y', 'SpeedY', 'AccnY',
-                             'Length', 'Width']
+        self._state_names = [
+            'PositionX', 'VelocityX', 'AccnX',
+            'PositionY', 'VelocityY', 'AccnY',
+            'Length', 'Width'
+        ]
 
     @property
     def phi_names(self):
         """Parameter names"""
-        return ['sigma_x', 'sigma_y', 'sigma_w', 'sigma_l']
+        return ['sigma_ax', 'sigma_ay', 'sigma_w', 'sigma_l']
 
     def update_matrices(self) -> None:
         """ Computes updated model matrices """
         self._check_if_model_initiated_correctly()
         # motion model
         self._motion.dt = self.dt
-        self._motion.phi['sigmas'] = [self.phi['sigma_x'], self.phi['sigma_y']]
+        self._motion.phi['sigmas'] = [
+            self.phi['sigma_ax'], self.phi['sigma_ay']]
         self._motion.update_matrices()
         # shape model
         self._shape.dt = self.dt
