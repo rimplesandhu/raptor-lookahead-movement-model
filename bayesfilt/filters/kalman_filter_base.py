@@ -1,4 +1,7 @@
 """ Kalman filter base class """
+# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-public-methods
+# pylint: disable=invalid-name
 from collections.abc import Sequence, Callable
 from typing import Dict, Tuple, List
 from abc import ABC, abstractmethod
@@ -8,12 +11,10 @@ from numpy import ndarray
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
+from .utils import get_covariance_ellipse
 
 
 class KalmanFilterBase(ABC):
-    # pylint: disable=too-many-instance-attributes
-    # pylint: disable=too-many-public-methods
-    # pylint: disable=invalid-name
     """
     Base class for implementing various Gaussian Kalman Filters
     """
@@ -372,6 +373,7 @@ class KalmanFilterBase(ABC):
 
 ### Plotting related ###
 
+
     def plot_state_mean(
         self,
         this_state,
@@ -552,7 +554,6 @@ class KalmanFilterBase(ABC):
 
 ### Getter for private class variables at last update/forecast###
 
-
     @ property
     def nx(self) -> int:
         """Dimension of state space"""
@@ -691,6 +692,7 @@ class KalmanFilterBase(ABC):
 
 ### Getter/Setter for matrices of dynamics model###
 
+
     @ property
     def F(self) -> ndarray:
         """State transition matrix"""
@@ -780,14 +782,3 @@ class KalmanFilterBase(ABC):
         #     print('\np update went wrong!')
         #     print(in_mat.diagonal())
         return (in_mat + in_mat.T) / 2.
-
-
-def get_covariance_ellipse(icov: ndarray, fac: float):
-    """Retruns width, height, and angle of the covariance ellipse"""
-    vals, vecs = np.linalg.eigh(icov)
-    order = vals.argsort()[::-1]
-    vals = vals[order]
-    vecs = vecs[:, order]
-    theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
-    width, height = 2. * fac * np.sqrt(vals)
-    return width, height, theta

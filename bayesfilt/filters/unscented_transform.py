@@ -1,4 +1,7 @@
 """ Unscented Transform class """
+# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-public-methods
+# pylint: disable=invalid-name
 from collections.abc import Callable
 import numpy as np
 from scipy.linalg import cholesky, sqrtm
@@ -6,7 +9,6 @@ from numpy import ndarray
 
 
 class SigmaPoints:
-    # pylint: disable=invalid-name
     """Generates sigma points and weights"""
 
     def __init__(

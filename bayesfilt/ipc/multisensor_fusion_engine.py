@@ -5,12 +5,11 @@
 import time
 import datetime
 from copy import deepcopy
-from typing import List, Dict
+from typing import List
 from dataclasses import dataclass
 import pandas as pd
 import numpy as np
-from bayesfilt.observation_model import ObservationModel
-from bayesfilt.kalman_filter_base import KalmanFilterBase
+from bayesfilt.filters import KalmanFilterBase
 from .traffic_sensor import TrafficSensor
 
 

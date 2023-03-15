@@ -8,8 +8,7 @@ import pandas as pd
 import numpy as np
 import matplotlib as mpl
 from matplotlib import patches
-from bayesfilt.observation_model import ObservationModel
-from bayesfilt.kalman_filter_base import KalmanFilterBase
+from bayesfilt.ssm import ObservationModel
 
 
 class TrafficSensor:

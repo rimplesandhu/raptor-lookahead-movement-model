@@ -1,12 +1,12 @@
 """Extended Kalman filter class"""
+# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-public-methods
+# pylint: disable=invalid-name
 import numpy as np
 from .kalman_filter_base import KalmanFilterBase
 
 
 class ExtendedKalmanFilter(KalmanFilterBase):
-    # pylint: disable=too-many-instance-attributes
-    # pylint: disable=invalid-name
-    # pylint: disable=not-callable
     """Extended Kalman Filter"""
 
     def __init__(
