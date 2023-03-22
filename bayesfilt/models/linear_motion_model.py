@@ -1,7 +1,7 @@
 """Classes defining linear motion models"""
 # pylint: disable=invalid-name
-import numpy as np
 from abc import abstractmethod
+import numpy as np
 from .motion_model import MotionModel
 
 
@@ -33,7 +33,7 @@ class RandomWalk1D(LinearMotionModel):
 
     def update_matrices(self) -> None:
         """Update system parameters"""
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         self._F[0, 0] = 1.
         self._Q[0, 0] = self.phi['sigma']**2 * self.dt**1 / 1
 
@@ -52,7 +52,7 @@ class RandomWalk(LinearMotionModel):
 
     def update_matrices(self) -> None:
         """Update system parameters"""
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         self._rw1d.dt = self.dt
         for i, v in enumerate(self.phi['sigmas']):
             self._rw1d.phi = {'sigma': v}
@@ -75,7 +75,7 @@ class ConstantVelocity1D(LinearMotionModel):
 
     def update_matrices(self) -> None:
         """Update system matrices"""
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         self._F[0, 0] = 1.
         self._F[0, 1] = self.dt
         self._F[1, 1] = 1.
@@ -102,7 +102,7 @@ class ConstantVelocity(LinearMotionModel):
 
     def update_matrices(self) -> None:
         """Update system parameters"""
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         self._cv1d.dt = self.dt
         for i, sigma in enumerate(self.phi['sigmas']):
             self._cv1d.phi = {'sigma': sigma}
@@ -125,7 +125,7 @@ class ConstantAcceleration1D(LinearMotionModel):
 
     def update_matrices(self) -> None:
         """Update system matrices"""
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         self._F = np.eye(self.nx)
         self._F[0, 1] = self.dt
         self._F[0, 2] = self.dt**2 / 2
@@ -157,7 +157,7 @@ class ConstantAcceleration(LinearMotionModel):
 
     def update_matrices(self) -> None:
         """Update system parameters"""
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         self._ca1d.dt = self.dt
         for i, sigma in enumerate(self.phi['sigmas']):
             self._ca1d.phi = {'sigma': sigma}
@@ -188,7 +188,7 @@ class CA2DRW2D(LinearMotionModel):
 
     def update_matrices(self) -> None:
         """ Computes updated model matrices """
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         # motion model
         self._motion.dt = self.dt
         self._motion.phi['sigmas'] = [

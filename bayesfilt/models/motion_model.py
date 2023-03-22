@@ -1,11 +1,11 @@
 """Base class for defining a motion model"""
+# pylint: disable=invalid-name
 import numpy as np
 from numpy import ndarray
 from .state_space_model import StateSpaceModel
 
 
 class MotionModel(StateSpaceModel):
-    # pylint: disable=invalid-name
     """Base class for defining a motion model"""
 
     def __init__(
@@ -23,7 +23,7 @@ class MotionModel(StateSpaceModel):
         self._qbar: ndarray = np.zeros((self.nx,))  # Error mean vector
 
     def __str__(self):
-        out_str = StateSpaceModel.__str__(self)
+        out_str = super().__str__()
         out_str += f'dt: {self.dt} second\n'
         if self.verbose:
             out_str += f'qbar: {np.array_str(np.array(self.qbar), precision=3)}\n'
@@ -32,23 +32,11 @@ class MotionModel(StateSpaceModel):
             out_str += f'Q:\n {np.array_str(np.array(self.Q), precision=3)}\n'
         return out_str
 
-# functions
-
-    def subtract_states(self, x0: ndarray, x1: ndarray):
-        """Residual function for computing difference among states"""
-        x0 = self.vec_setter(x0, self.nx)
-        x1 = self.vec_setter(x1, self.nx)
-        return np.subtract(x0, x1)
-
-    def _check_if_model_initiated_correctly(self):
+    def check_ready_to_deploy(self):
         """Checks if all the model parameters are initiated"""
-        for key, val in self.phi.items():
-            if val is None:
-                self.raiseit(f'Parameter -{key}- not assigned!')
+        super().check_ready_to_deploy()
         if self.dt is None:
             self.raiseit('Need to assign dt')
-
-# property/setters
 
     @property
     def qbar(self) -> float:
@@ -58,9 +46,7 @@ class MotionModel(StateSpaceModel):
     @qbar.setter
     def qbar(self, in_list) -> float:
         """Getter for time interval"""
-        if len(in_list) != self.nx:
-            self.raiseit(f'Dimension of vector u should be {self.nx}')
-        self._qbar = in_list
+        self._qbar = self.valid_list(in_list, self.nx)
 
     @property
     def dt(self) -> float:
@@ -70,11 +56,7 @@ class MotionModel(StateSpaceModel):
     @dt.setter
     def dt(self, in_val: float) -> float:
         """Getter for time interval"""
-        self._dt = self.float_setter(in_val)
-
-
-# Properties
-
+        self._dt = self.scaler(in_val, dtype='float64')
 
     @property
     def F(self) -> ndarray:

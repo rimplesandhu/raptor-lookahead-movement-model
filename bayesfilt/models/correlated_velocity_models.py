@@ -25,7 +25,7 @@ class CVM2D(LinearMotionModel):
 
     def update_matrices(self):
         """Update system matrices"""
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         mat_A = np.array([
             [1 / self.phi['tau'], -self.phi['omega']],
             [self.phi['omega'], 1 / self.phi['tau']]
@@ -76,7 +76,7 @@ class CVM3D(LinearMotionModel):
 
     def update_matrices(self):
         """Update system matrices"""
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
 
         # horizontal motion
         hor_A = np.array([
@@ -150,7 +150,7 @@ class CVM3D_NL(NonlinearMotionModel):
                 'eta_ver', 'tau_ver', 'sigma_mu_ver']
 
     def _update_base_model(self, x):
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         self._cvm3d.dt = self.dt
         self._cvm3d.phi = {k: v for k,
                            v in self.phi.items() if k in self._cvm3d.phi_names}
@@ -193,7 +193,7 @@ class CVM3D_NL_2(NonlinearMotionModel):
                 'eta_ver', 'sigma_tau_ver', 'sigma_mu_ver']
 
     def _update_base_model(self, x):
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         self._cvm3d.dt = self.dt
         self._cvm3d.phi = {k: v for k,
                            v in self.phi.items() if k in self._cvm3d.phi_names}
@@ -237,7 +237,7 @@ class CVM3D_NL_3(NonlinearMotionModel):
                 'eta_ver', 'sigma_log_tau_ver', 'sigma_mu_ver']
 
     def _update_base_model(self, x):
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         self._cvm3d.dt = self.dt
         self._cvm3d.phi = {k: v for k,
                            v in self.phi.items() if k in self._cvm3d.phi_names}
@@ -290,7 +290,7 @@ class CVM3D_NL_4(NonlinearMotionModel):
                 'eta_ver', 'sigma_log_tau_ver', 'sigma_mu_ver']
 
     def _update_base_model(self, x):
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         self._cvm3d.dt = self.dt
         self._cvm3d.phi = {k: v for k,
                            v in self.phi.items() if k in self._cvm3d.phi_names}
@@ -340,7 +340,7 @@ class CVM3D_NL_4(NonlinearMotionModel):
 
 #     def update_matrices(self):
 #         """Update system matrices"""
-#         self._check_if_model_initiated_correctly()
+#         self.check_ready_to_deploy()
 #         self._cvm3d.dt = self.dt
 #         self._cvm3d.phi = {k: v for k,
 #                            v in self.phi.items() if k in self._cvm3d.phi_names}
@@ -380,7 +380,7 @@ class CVM3D_NL_EXT2(NonlinearMotionModel):
         return phi_base + phi_aug
 
     def _update_base_model(self, x):
-        self._check_if_model_initiated_correctly()
+        self.check_ready_to_deploy()
         self._cvm3d.dt = self.dt
         self._cvm3d.phi = {k: v for k,
                            v in self.phi.items() if k in self._cvm3d.phi_names}
@@ -431,7 +431,7 @@ class CVM3D_NL_EXT2(NonlinearMotionModel):
 #         return phi_base + phi_aug
 
 #     def _update_base_model(self, x):
-#         self._check_if_model_initiated_correctly()
+#         self.check_ready_to_deploy()
 #         self._cvm3d.dt = self.dt
 #         self._cvm3d.phi = {k: v for k,
 #                            v in self.phi.items() if k in self._cvm3d.phi_names}
@@ -489,7 +489,7 @@ class CVM3D_NL_EXT2(NonlinearMotionModel):
 #         return phi_base + phi_aug
 
 #     def _update_base_model(self, x):
-#         self._check_if_model_initiated_correctly()
+#         self.check_ready_to_deploy()
 #         self._cvm3d.dt = self.dt
 #         self._cvm3d.phi = {k: v for k,
 #                            v in self.phi.items() if k in self._cvm3d.phi_names}
@@ -548,7 +548,7 @@ class CVM3D_NL_EXT2(NonlinearMotionModel):
 #         return phi_aug
 
 #     def _update_base_model(self, x):
-#         self._check_if_model_initiated_correctly()
+#         self.check_ready_to_deploy()
 #         self._cvm3d.dt = self.dt
 #         self._cvm3d.phi = {k: v for k,
 #                            v in self.phi.items() if k in self._cvm3d.phi_names}

@@ -9,67 +9,60 @@ from .kalman_filter_base import KalmanFilterBase
 class KalmanFilter(KalmanFilterBase):
     """Kalman Filter"""
 
-    def __init__(
-        self,
-        nx: int,
-        ny: int,
-        dt: float,
-        object_id: str | int = 0
-    ):
-        super().__init__(nx, ny, dt, object_id)
-        self.name = 'KF'
-
-    def validate(self) -> None:
-        """Check if system matrices/functions are initiated"""
-        super().validate()
-        if self.H is None:
-            self.raiseit('KF: Need to initiate H matrix!')
-        if self.F is None:
-            self.raiseit('KF: Need to initiate F matrix!')
+    def initiate(self, *args, **kwargs):
+        """Initiate function"""
+        super().initiate(*args, **kwargs)
+        if self.mat_H is None:
+            self.raiseit('Need to initiate H matrix!')
+        if self.mat_F is None:
+            self.raiseit('Need to initiate F matrix!')
 
     def forecast(self) -> None:
         """Kalman filter forecast step"""
         super().forecast()
-        self._m = self.qbar + self.F @ self.m
-        self._P = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
-        self._store_this_step()
+        self.m = self.vec_qbar + self.mat_F @ self.m
+        self.P = self.mat_F @ self.P @ self.mat_F.T + \
+            self.mat_G @ self.mat_Q @ self.mat_G.T
+        self.store_this_timestep()
 
     def update(self) -> None:
         """Kalman filter update step"""
-        y_pred = self.H @ self.m
-        Smat = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
+        yhat = self.mat_H @ self.m
+        Smat = self.mat_H @ self.P @ self.mat_H.T + \
+            self.mat_J @ self.R @ self.mat_J.T
         Smat_inv = np.linalg.pinv(Smat, hermitian=True)
-        y_res = self.y_subtract(self.obs, y_pred)
-        Kmat = self.P @ self.H.T @ Smat_inv
-        x_res = Kmat @ y_res
-        self._m = self.x_add(self.m, x_res)
-        Tmat = np.eye(self.nx) - Kmat @ self.H
-        self._P = Tmat @ self.P @ Tmat.T + Kmat @ self.R @ Kmat.T  # Joseph
-        # self._P = (np.eye(self.nx) - Kmat @ self.H) @ self.P
-        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
+        yres = self.fun_subtract_y(self.y, yhat)
+        Kmat = self.P @ self.mat_H.T @ Smat_inv
+        xres = Kmat @ yres
+        self._m = self.fun_subtract_x(self.m, -xres)
+        Tmat = np.eye(self.nx) - Kmat @ self.mat_H
+        self.P = Tmat @ self.P @ Tmat.T + Kmat @ self.R @ Kmat.T  # Joseph
+        # self._P = (np.eye(self.nx) - Kmat @ self.mat_H) @ self.P
+        self.P = self.symmetrize(self.P)
         Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
-        self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
-        self._store_this_step(update=True)
+        self.cur_metrics = self.compute_metrics(
+            xres, Pmat_inv, yres, Smat_inv)
+        self.store_this_timestep(update=True)
 
     def _backward_filter(self, smean_next, scov_next):
         """Backward filter"""
-        mhat = self.F @ self.m
-        Phat = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
-        Dmat = self.P @ self.F.T @ np.linalg.pinv(Phat, hermitian=True)
-        self._m = self.x_add(self.m, Dmat @ self.x_subtract(smean_next, mhat))
-        self._P += Dmat @ (scov_next - Phat) @ Dmat.T
-        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
-        if self.obs is not None:
-            y_res = self.y_subtract(self.obs, self.H @ self.m)
-            #Smat = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
-            Smat = self.H @ Phat @ self.H.T + self.J @ self.R @ self.J.T
+        Phat = self.mat_F @ self.P @ self.mat_F.T + \
+            self.mat_G @ self.mat_Q @ self.mat_G.T
+        Dmat = self.P @ self.mat_F.T @ np.linalg.pinv(Phat, hermitian=True)
+        mhat = self.mat_F @ self.m
+        xres = Dmat @ self.fun_subtract_x(smean_next, mhat)
+        self.m = self.fun_subtract_x(self.m, -xres)
+        self.P += Dmat @ (scov_next - Phat) @ Dmat.T
+        self.P = self.symmetrize(self.P)
+        self.cur_smetrics = self.compute_metrics()
+        if self.y is not None:
+            yhat = self.mat_H @ self.m
+            yres = self.fun_subtract_y(self.y, yhat)
+            Smat = self.mat_H @ Phat @ self.mat_H.T + \
+                self.mat_J @ self.R @ self.mat_J.T
             Smat_inv = np.linalg.pinv(Smat, hermitian=True)
+            Kmat = Phat @ self.mat_H.T @ Smat_inv
             Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
-            #Kmat = self.P @ self.H.T @ Smat_inv
-            Kmat = Phat @ self.H.T @ Smat_inv
-            x_res = np.dot(Kmat, y_res)
-            self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
-        else:
-            self._nees = np.nan
-            self._nis = np.nan
-            self._loglik = np.nan
+            xres = np.dot(Kmat, yres)
+            self.cur_smetrics = self.compute_metrics(
+                xres, Pmat_inv, yres, Smat_inv)

@@ -2,6 +2,7 @@
 # pylint: disable=too-many-instance-attributes
 # pylint: disable=too-many-public-methods
 # pylint: disable=invalid-name
+from functools import partial
 import numpy as np
 from .kalman_filter_base import KalmanFilterBase
 
@@ -9,83 +10,73 @@ from .kalman_filter_base import KalmanFilterBase
 class ExtendedKalmanFilter(KalmanFilterBase):
     """Extended Kalman Filter"""
 
-    def __init__(
-        self,
-        nx: int,
-        ny: int,
-        dt: float,
-        object_id: str | int = 0
-    ):
-        super().__init__(nx, ny, dt, object_id)
-        self.name = 'EKF'
-
-    def validate(self) -> None:
-        """Check if system matrices/functions are initiated"""
-        super().validate()
-        if self.f is None:
-            self.raiseit('EKF: Need to define dynamics function f()')
-        if self.h is None:
-            self.raiseit('EKF: Need to define observation function h()')
-        if self.compute_F is None:
-            self.raiseit('EKF: Need to define function compute_F!')
-        if self.compute_Q is None:
-            self.raiseit('EKF: Need to define function compute_Q!')
-        if self.compute_H is None:
-            self.raiseit('EKF: Need to define function compute_H!')
+    def initiate(self, *args, **kwargs):
+        """Initiate function"""
+        super().initiate(*args, **kwargs)
+        if self.fun_f is not None:
+            if self.mat_F is not None:
+                object.__setattr__(
+                    self, 'fun_Fjac', partial(self.v2m, self.mat_F))
+            else:
+                self.raiseit('Need to define either mat_F or fun_Fjac')
+        if self.fun_h is not None:
+            if self.mat_H is not None:
+                object.__setattr__(
+                    self, 'fun_Hjac', partial(self.v2m, self.mat_H))
+            else:
+                self.raiseit('Need to define either mat_H or fun_Hjac')
 
     def forecast(self) -> None:
-        """Kalman filter forecast step"""
+        """EKF forecast step"""
         super().forecast()
-        self.F = self.compute_F(self.m, self.qbar)
-        self.Q = self.compute_Q(self.m, self.qbar)
-        if self.compute_G is not None:
-            self.G = self.compute_G(self.m, self.qbar)
-        self._m = self.f(self.m, self.qbar)
-        self._P = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
-        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
-        self._store_this_step()
+        Fmat = self.fun_Fjac(self.m, self.vec_qbar)
+        Qmat = self.fun_Q(self.m, self.vec_qbar)
+        Gmat = self.fun_Gjac(self.m, self.vec_qbar)
+        self.m = self.fun_f(self.m, self.vec_qbar)
+        self.P = Fmat @ self.P @ Fmat.T + Gmat @ Qmat @ Gmat.T
+        self.P = self.symmetrize(self.P)
+        self.store_this_timestep()
 
     def update(self) -> None:
-        """Kalman filter update step"""
-        self.H = self.compute_H(self.m, self.rbar)
-        if self.compute_J is not None:
-            self.J = self.compute_J(self.m, self.rbar)
-        y_pred = self.h(self.m, self.rbar)
-        Smat = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
+        """EKF update step"""
+        Hmat = self.fun_Hjac(self.m, self.vec_rbar)
+        Jmat = self.fun_Jjac(self.m, self.vec_rbar)
+        yhat = self.fun_h(self.m, self.vec_rbar)
+        Smat = Hmat @ self.P @ Hmat.T + Jmat @ self.R @ Jmat.T
         Smat_inv = np.linalg.pinv(Smat, hermitian=True)
-        y_res = self.y_subtract(self.obs, y_pred)
-        Kmat = self.P @ self.H.T @ Smat_inv
-        x_res = Kmat @ y_res
-        self._m = self.x_add(self.m, x_res)
-        Tmat = np.eye(self.nx) - Kmat @ self.H  # Joseph's form, num stable
-        self._P = Tmat @ self.P @ Tmat.T + Kmat @ self.R @ Kmat.T
-        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
-        Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
-        self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
-        self._store_this_step(update=True)
+        yres = self.fun_subtract_y(self.y, yhat)
+        Kmat = self.P @ Hmat.T @ Smat_inv
+        xres = Kmat @ yres
+        self.m = self.fun_subtract_x(self.m, -xres)
+        Tmat = np.eye(self.nx) - Kmat @ Hmat  # Joseph's form, num stable
+        self.P = Tmat @ self.P @ Tmat.T + Kmat @ self.R @ Kmat.T
+        Pmat_inv = np.linalg.pinv(self.symmetrize(self.P), hermitian=True)
+        self.cur_metrics = self.compute_metrics(
+            xres, Pmat_inv, yres, Smat_inv)
+        self.store_this_timestep(update=True)
 
     def _backward_filter(self, smean_next, scov_next):
-        """Backward filter"""
-        self.F = self.compute_F(self.m, self.qbar)
-        if self.compute_G is not None:
-            self.G = self.compute_G(self.m, self.qbar)
-        self.Q = self.compute_Q(self.m, self.qbar)
-        fcov = self.F @ self.P @ self.F.T + self.G @ self.Q @ self.G.T
-        fcov_inv = np.linalg.pinv(fcov, hermitian=True)
-        gmat = self.P @ self.F.T @ fcov_inv
-        xres = gmat @ self.x_subtract(smean_next, self.f(self.m, self.qbar))
-        self._m = self.x_add(self.m, xres)
-        self._P += gmat @ (scov_next - fcov) @ gmat.T
-        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
-        if self.obs is not None:
-            self.H = self.compute_H(self.m, self.rbar)
-            if self.compute_J is not None:
-                self.J = self.compute_J(self.m, self.rbar)
-            y_pred = self.h(self.m, self.rbar)
-            y_res = self.y_subtract(self.obs, y_pred)
-            Smat = self.H @ self.P @ self.H.T + self.J @ self.R @ self.J.T
+        """Backward filter for smoother"""
+        Fmat = self.fun_Fjac(self.m, self.vec_qbar)
+        Gmat = self.fun_Gjac(self.m, self.vec_qbar)
+        Qmat = self.fun_Q(self.m, self.vec_qbar)
+        Phat = Fmat @ self.P @ Fmat.T + Gmat @ Qmat @ Gmat.T
+        Dmat = self.P @ Fmat.T @ np.linalg.pinv(Phat, hermitian=True)
+        mhat = self.fun_f(self.m, self.vec_qbar)
+        xres = Dmat @ self.fun_subtract_x(smean_next, mhat)
+        self.m = self.fun_subtract_x(self.m, -xres)
+        self.P += Dmat @ (scov_next - Phat) @ Dmat.T
+        self.P = self.symmetrize(self.P)
+        self.cur_smetrics = self.compute_metrics()
+        if self.y is not None:
+            Hmat = self.fun_Hjac(self.m, self.vec_rbar)
+            Jmat = self.fun_Jjac(self.m, self.vec_rbar)
+            yhat = self.fun_h(self.m, self.vec_rbar)
+            yres = self.fun_subtract_y(self.y, yhat)
+            Smat = Hmat @ Phat @ Hmat.T + Jmat @ self.R @ Jmat.T
             Smat_inv = np.linalg.pinv(Smat, hermitian=True)
-            Kmat = self.P @ self.H.T @ Smat_inv
-            x_res = np.dot(Kmat, y_res)
+            Kmat = Phat @ Hmat.T @ Smat_inv
+            xres = np.dot(Kmat, yres)
             Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
-            self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
+            self.cur_smetrics = self.compute_metrics(
+                xres, Pmat_inv, yres, Smat_inv)

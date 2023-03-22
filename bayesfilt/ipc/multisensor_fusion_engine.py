@@ -46,7 +46,7 @@ class MultisensorFusionEngine:
 
     def _initiate_new_object(self, at_id, at_mean):
         """Initiates new object id"""
-        print(f'Started object {at_id} at {np.around(self._cur_time,3)}s')
+        print(f'Started {at_id} at {np.around(self._cur_time,3)}s')
         self._history_kf[at_id] = deepcopy(self.kf_base)
         self._history_kf[at_id].id = at_id
         self._history_kf[at_id].initiate_state(self._cur_time, at_mean)
@@ -58,7 +58,7 @@ class MultisensorFusionEngine:
         """Kill/rmeove this object"""
         for this_id in list(these_ids):
             print(
-                f'Killed  object {this_id} at {np.around(self._cur_time,3)}s')
+                f'Killed {this_id} at {np.around(self._cur_time,3)}s')
             del self._history_kf[this_id]
 
     def _assemble_df(self, start_datetime: datetime.datetime):

@@ -3,127 +3,72 @@
 # pylint: disable=too-many-public-methods
 # pylint: disable=invalid-name
 from collections.abc import Sequence, Callable
-from typing import Dict, Tuple, List
+from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from copy import deepcopy
 import numpy as np
 from numpy import ndarray
+from tqdm import tqdm
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
-from .utils import get_covariance_ellipse
+from .utils import get_covariance_ellipse, validate_array, sym_posdef_matrix
+from .filter_attributes_static import FilterAttributesStatic
+from .filter_attributes_dynamic import FilterAttributesDynamic
 
 
-class KalmanFilterBase(ABC):
-    """
-    Base class for implementing various Gaussian Kalman Filters
-    """
+class KalmanFilterBase(FilterAttributesStatic, FilterAttributesDynamic):
+    """ Base class for implementing various versions of Kalman Filters"""
 
     def __init__(
         self,
-        nx: int,
-        ny: int,
-        dt: float,
-        object_id: str | int = 0
+        *args,
+        **kwargs
     ):
-        # basic info
-        self.name: str = 'KFBase'
-        self.id: str = object_id
-        self.id_col = 'ObjectID'
-        self.dt: float = dt
-        self.dt_tol: float = 0.01
-        self.epsilon: float = 1e-20
-        self._nx: int = self.int_setter(nx)  # dimension of state vector
-        self._ny: int = self.int_setter(ny)  # dimension of observation vector
-        self._m: ndarray | None = None  # state mean vector
-        self._P: ndarray | None = None  # state covariance matrix
-        self._truth: ndarray | None = None
-        self._obs: ndarray | None = None
-        self.pars: Dict[str, float] = {}
+        FilterAttributesStatic.__init__(self, *args, **kwargs)
+        FilterAttributesDynamic.__init__(self)
 
-        # dynamics model
-        self.func_f: Callable | None = None  # state transition function
-        self._F: ndarray | None = None  # state transition matrix
-        self.func_Q: Callable | None = None
-        self._Q: ndarray | None = None  # process error cov mat
-        self._G: ndarray = np.eye(self.nx)  # Error jacobian matrix
-        self._qbar: ndarray = np.zeros((self.nx,))  # process error cov mat
-
-        # observation model
-        self.func_h: Callable | None = None  # observation-state function
-        self._H: ndarray | None = None  # observation-state matrix
-        self.func_R: Callable | None = None
-        self._R: ndarray | None = None  # obs error covariance matrix
-        self._J: ndarray = np.eye(self.ny)  # obs error jacobian matrix
-        self._rbar: ndarray = np.zeros((self.ny,))  # obs error mean
-
-        # add/subtract functions
-        self.x_add: Callable = np.add
-        self.x_subtract: Callable = np.subtract
-        self.y_subtract: Callable = np.subtract
-        self.x_mean_fn: Callable | None = None
-        self.y_mean_fn: Callable | None = None
-
-        # Kalman filtering parameters
-        self._nees: float = np.nan  # normalized estimation error squared
-        self._nis: float = np.nan  # normalized innovation squared
-        self._loglik: float = np.nan  # log lik of observations
-        self._time_elapsed: float = 0.  # time elapsed, default starts at 0.
-        self._last_update_at: float = 0.  # last update at this time
-        self._state_names: Sequence[str] = [f'x_{i}' for i in range(self._nx)]
-
-        # saving history of filter and smoother
-        varnames = ['TimeElapsed', 'Observation', 'Truth', 'ObservationCov',
-                    'FilterMean', 'FilterCov']
-        self.filter_metrics = ['FilterNEES', 'FilterNIS', 'FilterLogLik']
-        self.smoother_metrics = ['SmootherNEES',
-                                 'SmootherNIS', 'SmootherLogLik']
-        self._history = {}
-        for varname in varnames + self.filter_metrics:
-            self._history[varname] = []
-
-    def initiate_state(
+    def initiate(
         self,
-        t0: float,
-        m0: ndarray,
+        t0: float | None = None,
+        m0: ndarray | None = None,
         P0: ndarray | None = None
     ) -> None:
-        """Initiate the time, state mean and covariance matrix"""
-        for v in self._history.values():
-            v.clear()
-        self._time_elapsed = t0
-        self._m = self.vec_setter(m0, self.nx)
-        if P0 is not None:
-            self._P = self.mat_setter(P0, (self.nx, self.nx))
-        self._truth = None
-        self._obs = None
-        self._nees = np.nan
-        self._nis = np.nan
-        self._loglik = np.nan
-        self._last_update_at = t0
-        self._store_this_step()
+        """Initiate the filter"""
+        if t0 is None:
+            if self.time_elapsed is None:
+                self.raiseit('Need to initiate time')
+        else:
+            self._time_elapsed = t0
+            self._last_update_at = t0
+        if m0 is None:
+            if self.m is None:
+                self.raiseit('Need to initiate state mean m')
+        else:
+            self.m = m0
+        if P0 is None:
+            if self.P is None:
+                self.raiseit('Need to initiate state cov P')
+        else:
+            self.P = P0
+        self._dfraw.clear()
+        self.cur_metrics = self.compute_metrics()
+        self.store_this_timestep()
 
-    def initiate_state_by_dict(
-        self,
-        t0: float,
-        dict_of_mean_std: Dict[str, Tuple[float, float]]
-    ) -> None:
-        """Initiate the time, state mean and covariance matrix"""
-        for v in self._history.values():
-            v.clear()
-        self._time_elapsed = t0
-        self._m = np.zeros((self.nx,))
-        self._P = np.eye(self.nx)
-        for i, iname in enumerate(self.state_names):
-            if iname in dict_of_mean_std.keys():
-                self._m[i] = dict_of_mean_std[iname][0]
-                self._P[i, i] = dict_of_mean_std[iname][1]**2
-        self._truth = None
-        self._obs = None
-        self._nees = np.nan
-        self._nis = np.nan
-        self._loglik = np.nan
-        self._store_this_step()
+    @abstractmethod
+    def forecast(self) -> None:
+        """Forecast step"""
+        self._time_elapsed += self.dt
+        self._y = None
+        self.cur_metrics = self.compute_metrics()
+
+    @abstractmethod
+    def update(self) -> None:
+        """Update step"""
+
+    @abstractmethod
+    def _backward_filter(self, smean_next, scov_next) -> None:
+        """Backward filter"""
 
     def forecast_upto(
         self,
@@ -144,111 +89,108 @@ class KalmanFilterBase(ABC):
         list_of_time: Sequence[float],
         list_of_obs: Sequence[ndarray],
         list_of_R: Sequence[ndarray] | None = None,
-        list_of_truth: Sequence[ndarray] | None = None
     ) -> None:
         """Run filtering assuming F, H, Q matrices are time invariant"""
 
-        # check if inputs are valid
+        self.initiate()
         nsteps = len(list_of_time)
         if len(list_of_obs) != nsteps:
-            print('Length mismatch!')
-            self.raiseit(f'time:{nsteps} vs observations: {len(list_of_obs)}')
+            istr = 'Length mismatch between list_of_time and list_of_obs'
+            self.raiseit(f'{istr}: {nsteps} vs {len(list_of_obs)}')
         if list_of_R is not None:
             if len(list_of_R) != nsteps:
-                self.raiseit('Length mismatch: time vs list of R matrices')
-        if list_of_truth is not None:
-            if len(list_of_truth) != nsteps:
-                self.raiseit('Size mismatch: time vs list of state truths')
-        if len(self._history['TimeElapsed']) > 1:
-            self.raiseit('Need to initiate state!')
+                istr = 'Length mismatch between list_of_time and list_of_R'
+                self.raiseit(f'{istr}: {nsteps} vs {len(list_of_R)}')
+        else:
+            if self.R is None:
+                self.raiseit('Need to initiate obs cov matrix R')
 
-        # run the forward filter
-        k = 0
-        while k < len(list_of_time):
-            if self._time_elapsed - list_of_time[k] > self.dt_tol:
-                self.raiseit(f'Skipping observation, lower the dt={self.dt}!')
-            if abs(self._time_elapsed - list_of_time[k]) < self.dt_tol:
-                self.obs = list_of_obs[k]
-                self.R = self.R if list_of_R is None else list_of_R[k]
-                self.truth = None if list_of_truth is None else list_of_truth[k]
+        tloop = tqdm(enumerate(list_of_time), total=len(list_of_time),
+                     desc=self.__class__.__name__ + '-Forward ')
+        for k, itime in tloop:
+            if self.time_elapsed - itime > self.dt_tol:
+                istr = f'y at {itime}, x at {self.time_elapsed}'
+                self.raiseit(f'Skipping observation, {istr}!')
+            if abs(self._time_elapsed - itime) < self.dt_tol:
+                self.y = list_of_obs[k]
+                if list_of_R is not None:
+                    self.R = list_of_R[k]
                 self.update()
-                k += 1
             else:
                 self.forecast()
-                if np.any(np.linalg.eigvals(self.P) < 0):
-                    print('Exiting because covariance is not pos def!')
-                    break
+                self._P = sym_posdef_matrix(self.P)
+
+        # k = 0
+        # while k < len(list_of_time):
+        #     if self.time_elapsed - list_of_time[k] > self.dt_tol:
+        #         istr = f'y at {list_of_time[k]}, x at {self.time_elapsed}'
+        #         self.raiseit(f'Skipping observation, {istr}!')
+        #     if abs(self._time_elapsed - list_of_time[k]) < self.dt_tol:
+        #         self.y = list_of_obs[k]
+        #         if list_of_R is not None:
+        #             self.R = list_of_R[k]
+        #         self.update()
+        #         k += 1
+        #     else:
+        #         self.forecast()
+        #         self._P = sym_posdef_matrix(self.P)
 
     def smoother(self):
         """Run smoothing assuming model/measurement eq are time invariant"""
-        nsteps = len(self.history['TimeElapsed'])
-        if nsteps < 1:
-            self.raiseit('No state history found, run filter first!')
-        cnames = ['SmootherMean', 'SmootherCov'] + self.smoother_metrics
-        for cname in cnames:
-            self._history[cname] = []
-        for i in reversed(range(nsteps)):
-            self._time_elapsed = self.history['TimeElapsed'][i]
-            self._obs = self.history['Observation'][i]
-            self._truth = self.history['Truth'][i]
-            self._m = deepcopy(self.history['FilterMean'][i])
-            self._P = deepcopy(self.history['FilterCov'][i])
-            self._R = self.history['ObservationCov'][i]
+        nsteps = len(self.dfraw[self.time_colname])
+        if nsteps < 2:
+            self.raiseit('No state history found, run filter() first!')
+        colnames = [self.smean_colname, self.scov_colname,
+                    self.smetrics_colname]
+        for cname in colnames:
+            self._dfraw[cname] = []
+        self.cur_smetrics = self.compute_metrics()
+        tloop = tqdm(reversed(range(nsteps)), total=nsteps,
+                     desc=self.__class__.__name__ + '-Backward')
+        for i in tloop:
+            self.m = deepcopy(self._dfraw[self.mean_colname][i])
+            self.P = deepcopy(self._dfraw[self.cov_colname][i])
+            self.y = deepcopy(self._dfraw[self.y_colname][i])
+            self.R = deepcopy(self._dfraw[self.ycov_colname][i])
             if i != nsteps - 1:
-                smean_next = self.history['SmootherMean'][-1]
-                scov_next = self.history['SmootherCov'][-1]
+                smean_next = self._dfraw[self.smean_colname][-1]
+                scov_next = self._dfraw[self.scov_colname][-1]
                 self._backward_filter(smean_next, scov_next)
-            self._history['SmootherMean'].append(deepcopy(self.m))
-            self._history['SmootherCov'].append(deepcopy(self.P))
-            self._history[self.smoother_metrics[0]].append(self.nees)
-            self._history[self.smoother_metrics[1]].append(self.nis)
-            self._history[self.smoother_metrics[2]].append(self.loglik)
-        for k, v in self._history.items():
-            if k.startswith('Smoother'):
-                v.reverse()
+            self._dfraw[self.smean_colname].append(deepcopy(self.m))
+            self._dfraw[self.scov_colname].append(deepcopy(self.P))
+            self._dfraw[self.smetrics_colname].append(self.cur_smetrics)
+        for cname in colnames:
+            self._dfraw[cname].reverse()
 
-    def _store_this_step(self, update: bool = False) -> None:
-        """Store this forecast/update step"""
-        self._time_elapsed = np.around(self.time_elapsed, 3)
-        if update:
-            for k, v in self._history.items():
-                if not k.startswith('Smoother'):
-                    del v[-1]
-            self._last_update_at = self.time_elapsed
-        self._history['TimeElapsed'].append(self.time_elapsed)
-        self._history['Observation'].append(self.obs)
-        self._history['Truth'].append(self.truth)
-        self._history['ObservationCov'].append(self.R)
-        self._history['FilterMean'].append(deepcopy(self.m))
-        self._history['FilterCov'].append(deepcopy(self.P))
-        self._history[self.filter_metrics[0]].append(self.nees)
-        self._history[self.filter_metrics[1]].append(self.nis)
-        self._history[self.filter_metrics[2]].append(self.loglik)
-
-    def _compute_metrics(self, xres, xprec, yres, yprec):
-        """compute performance metrics"""
-        self._nis = np.linalg.multi_dot([yres.T, yprec, yres])
-        prec_det = np.linalg.det(yprec)
-        # if prec_det > 0.:
-        self._loglik = -0.5 * (self.ny * np.log(2. * np.pi) -
-                               np.log(prec_det) + self.nis)
-        # else:
-        #    self._loglik = np.nan
-        if self.truth is not None:
-            xres = self.m - self.truth
-        self._nees = np.linalg.multi_dot([xres.T, xprec, xres])
+    def compute_metrics(
+        self,
+        xres: ndarray | None = None,
+        xprec: ndarray | None = None,
+        yres: ndarray | None = None,
+        yprec: ndarray | None = None
+    ):
+        """compute filter performance metrics"""
+        idict = {'NIS': np.nan, 'NEES': np.nan, 'LogLik': np.nan}
+        if (yres is not None) and (yprec is not None):
+            idict['NIS'] = np.linalg.multi_dot([yres.T, yprec, yres])
+            prec_det = np.linalg.det(yprec)
+            idict['LogLik'] = -0.5 * (self.ny * np.log(2. * np.pi) -
+                                      np.log(prec_det) + idict['NIS'])
+        if (xres is not None) and (xprec is not None):
+            idict['NEES'] = np.linalg.multi_dot([xres.T, xprec, xres])
+        return idict
 
     def get_loglik_of_obs(
         self,
         y_obs: ndarray,
-        ignore_obs_inds: List[int] | None = None
+        ignore_obs_inds: list[int] | None = None
     ) -> None:
         """
         Compute log-likelihood of this observation
         """
-        y_pred = self.H @ self.m
+        y_pred = self.mat_H @ self.m
         _residual = y_obs - y_pred
-        _this_smat = self.H @ self.P @ self.H.T + self.R
+        _this_smat = self.mat_H @ self.P @ self.mat_H.T + self.R
         if ignore_obs_inds is not None:
             for idx in ignore_obs_inds:
                 _residual[idx] = 0.
@@ -264,119 +206,83 @@ class KalmanFilterBase(ABC):
         this_loglik *= -0.5
         return this_loglik
 
-### abstract methods to be implemented by children of this base class ###
+    def symmetrize(self, in_mat: ndarray) -> ndarray:
+        """Return a symmetrized, regularized covariance matrix"""
+        return (in_mat + in_mat.T) / 2. + np.diag([self.epsilon] * self.nx)
 
-    @ abstractmethod
-    def validate(self) -> None:
-        """Check if relevant matrices and/or functions have been initiated"""
-        if (self.P is None) or (self.m is None):
-            self.raiseit('Need to initiate state, use initiate_state()')
-        if self.R is None:
-            self.raiseit('Need to initiate R matrix!')
-        if self.Q is None:
-            self.raiseit('Need to initiate Q matrix!')
-
-    @ abstractmethod
-    def forecast(self) -> None:
-        """Forecast step"""
-        self._time_elapsed += np.around(self.dt, 3)
-        self._truth = None
-        self._obs = None
-        self._nis = np.nan
-        self._nees = np.nan
-        self._loglik = np.nan
-
-    @ abstractmethod
-    def update(self) -> None:
-        """Update step"""
-
-    @ abstractmethod
-    def _backward_filter(self, smean_next, scov_next) -> None:
-        """Backward filter"""
-
-
-### accessing filter/smoother results###
+    def get_state_index(self, state: int | str) -> int:
+        """Get state index and name"""
+        if isinstance(state, int):
+            if state > self.nx:
+                self.raiseit(f'Invalid index {state}, choose < {self.nx}')
+            idx = state
+        elif isinstance(state, str):
+            if state not in self.state_names:
+                self.raiseit(f'Invalid {state}, Valid: {self.state_names}')
+            idx = self.state_names.index(state)
+        return idx
 
     def get_mean(
         self,
-        this_state: str | int,
+        state: int | str,
         smoother: bool = False
     ) -> ndarray:
-        """Get state mean time series of ith state"""
-        cname = 'SmootherMean' if smoother else 'FilterMean'
-        if isinstance(this_state, int):
-            idx = this_state
-            self.check_state_index(idx)
-        elif isinstance(this_state, str):
-            assert this_state in self.state_names, f'{this_state} invalid!'
-            idx = self.state_names.index(this_state)
-        return np.stack(self.df[cname].values)[:, idx]
-
-    def get_time_elapsed(self) -> ndarray:
-        """Get time elapsed"""
-        return self.df['TimeElapsed'].values
+        """Get time series of state mean for a given index/name of the state"""
+        colname = self.smean_colname if smoother else self.mean_colname
+        if colname not in self.dfraw.columns:
+            self.raiseit('No smoother history found, run smoother() first!')
+        idx = self.get_state_index(state)
+        return np.stack(self.dfraw[colname].values)[:, idx]
 
     def get_cov(
         self,
-        this_state: str | int | Tuple[int, int] | Tuple[str, str],
+        state: str | int | tuple[int, int] | tuple[str, str],
         smoother: bool = False
     ) -> ndarray:
         """Get state covariance matrix for the desired indices"""
-        cname = 'SmootherCov' if smoother else 'FilterCov'
-        if isinstance(this_state, int):
-            idx_pair = [this_state, this_state]
-        elif isinstance(this_state, str):
-            assert this_state in self.state_names, f'{this_state} invalid!'
-            idx = self.state_names.index(this_state)
+        cname = self.scov_colname if smoother else self.cov_colname
+        if isinstance(state, int) | isinstance(state, str):
+            idx = self.get_state_index(state)
             idx_pair = [idx, idx]
-        elif isinstance(this_state, Sequence):
-            assert len(this_state) == 2, 'Need a pair of state idx/names!'
+        elif isinstance(state, Sequence):
+            assert len(state) == 2, 'Need a pair of state idx/names!'
             idx_pair = [0, 0]
-            for i, idx in enumerate(this_state):
-                if isinstance(idx, int):
-                    self.check_state_index(idx)
-                    idx_pair[i] = idx
-                elif isinstance(idx, str):
-                    self.check_state_name(idx)
-                    idx_pair[i] = self.state_names.index(idx)
-                else:
-                    self.raiseit('Need either int or str!')
+            for i, idx in enumerate(state):
+                idx_pair[i] = self.get_state_index(idx)
         else:
             self.raiseit('Need either int or str or (int,int) or (str,str)')
-        # indices = np.ix_(np.arange(self.df.shape[0]), idx_pair[0], idx_pair[1])
-        return np.stack(self.df[cname].values)[:, idx_pair[0], idx_pair[1]]
+        return np.stack(self.dfraw[cname].values)[:, idx_pair[0], idx_pair[1]]
 
-    # def get_cov(
-    #     self,
-    #     row_inds: int,
-    #     col_inds: int | None = None,
-    #     smoother: bool = False
-    # ) -> ndarray:
-    #     """Get state covariance matrix for the desired indices"""
-    #     cname = 'SmootherCov' if smoother else 'FilterCov'
-    #     row_inds = row_inds if isinstance(row_inds, list) else [row_inds]
-    #     col_inds = col_inds if col_inds is not None else row_inds
-    #     col_inds = col_inds if isinstance(col_inds, list) else [col_inds]
-    #     indices = np.ix_(np.arange(self.df.shape[0]), row_inds, col_inds)
-    #     return np.stack(self.df[cname].values)[indices]
+    def get_df(self, smoother=False):
+        """Returns short version of pandas dataframe"""
+        out_df = self.dfraw.loc[:, [self.time_colname]].copy()
+        mcol = self.smetrics_colname if smoother else self.metrics_colname
+        for iname in self.state_names:
+            out_df[iname] = self.get_mean(iname, smoother=smoother)
+            out_df[iname + '_var'] = self.get_cov(iname, smoother=smoother)
+        # dff['Observation'] = self.dfraw['Observation']
+        #dff['Training'] = True
+        # dff.loc[self.dfraw['Observation'].isna(), 'Training'] = False
+        out_df['ObjectId'] = self.objectid
+        #out_df.insert(column='Id', value=self.objectid, dtype='int32')
+        out_df = pd.concat([out_df, self.dfraw[mcol].apply(pd.Series)], axis=1)
+        out_df[out_df.select_dtypes(np.float64).columns] = out_df.select_dtypes(
+            np.float64).astype(np.float32)
+        return out_df
 
-    @ property
-    def metrics(self) -> dict:
-        """Get the summary performance metrics"""
-        out_metrics = {}
-        for cname in self.filter_metrics + self.smoother_metrics:
-            if cname in list(self.df.columns):
-                out_metrics[cname] = np.around(
-                    self.df[cname].dropna().sum(), 3)
-        return out_metrics
+    @property
+    def df(self) -> pd.DataFrame:
+        """History of the filter in the form of a pandas dataframe"""
+        return self.get_df(smoother=False)
 
-
-### Plotting related ###
-
+    @property
+    def dfs(self) -> pd.DataFrame:
+        """History of the filter in the form of a pandas dataframe"""
+        return self.get_df(smoother=True)
 
     def plot_state_mean(
         self,
-        this_state,
+        state,
         *args,
         ax: plt.Axes | None = None,
         smoother: bool = False,
@@ -384,17 +290,17 @@ class KalmanFilterBase(ABC):
     ) -> None:
         """Plot the time history of state estimates"""
         ax = plt.gca() if ax is None else ax
-        tvec = self.get_time_elapsed()
-        xvec = self.get_mean(this_state, smoother=smoother)
-        cb = ax.plot(tvec, xvec, *args, **kwargs)
-        # ax.set_ylabel(f'{self.state_names[state_idx]}')
-        ax.set_xlim([tvec[0], tvec[-1]])
-        # ax.set_xlabel('Time elapsed (Seconds)')
+        xvec = self.get_mean(state, smoother=smoother)
+        cb = ax.plot(self.tlist, xvec, *args, **kwargs)
+        state_idx = self.get_state_index(state)
+        ax.set_ylabel(f'{self.state_names[state_idx]}')
+        ax.set_xlim([self.tlist[0], self.tlist[-1]])
+        ax.set_xlabel('Time elapsed (Seconds)')
         return cb
 
     def plot_state_cbound(
         self,
-        this_state,
+        state,
         *args,
         ax: plt.Axes | None = None,
         smoother: bool = False,
@@ -403,33 +309,16 @@ class KalmanFilterBase(ABC):
     ) -> None:
         """Plot the time history of state estimates"""
         ax = plt.gca() if ax is None else ax
-        tvec = self.get_time_elapsed()
-        xvec = self.get_mean(this_state, smoother=smoother)
-        xvec_var = self.get_cov(this_state, smoother=smoother)
+        xvec = self.get_mean(state, smoother=smoother)
+        xvec_var = self.get_cov(state, smoother=smoother)
         cb_width = np.ravel(cb_fac * xvec_var**0.5)
-        cb = ax.fill_between(tvec, xvec - cb_width, xvec +
+        cb = ax.fill_between(self.tlist, xvec - cb_width, xvec +
                              cb_width, *args, **kwargs)
-        # ax.set_ylabel(f'{self.state_names[state_index]}')
-        ax.set_xlim([tvec[0], tvec[-1]])
-        # ax.set_xlabel('Time elapsed (Seconds)')
+        state_idx = self.get_state_index(state)
+        ax.set_ylabel(f'{self.state_names[state_idx]}')
+        ax.set_xlim([self.tlist[0], self.tlist[-1]])
+        ax.set_xlabel('Time elapsed (Seconds)')
         return cb
-
-    # def plot(
-    #     self,
-    #     smoother: bool = False,
-    #     fig_size=(6, 6)
-    # ) -> None:
-    #     """Plot the time history of state estimates"""
-    #     self.nx
-    #     fig, ax = plt.subplots(, figsize=fig_size)
-    #     ax = plt.gca() if ax is None else ax
-    #     tvec = self.get_time_elapsed()
-    #     xvec = self.get_mean(this_state, smoother=smoother)
-    #     cb = ax.plot(tvec, xvec, *args, **kwargs)
-    #     # ax.set_ylabel(f'{self.state_names[state_idx]}')
-    #     ax.set_xlim([tvec[0], tvec[-1]])
-    #     # ax.set_xlabel('Time elapsed (Seconds)')
-    #     return cb
 
     def plot_trajectory_cbound(
         self,
@@ -441,8 +330,6 @@ class KalmanFilterBase(ABC):
         **kwargs
     ) -> None:
         """Plot the trajectory"""
-        self.check_state_index(x_indx)
-        self.check_state_index(y_indx)
         ax = plt.gca() if ax is None else ax
         xlocs = self.get_mean(x_indx, smoother=smoother)
         ylocs = self.get_mean(y_indx, smoother=smoother)
@@ -463,322 +350,103 @@ class KalmanFilterBase(ABC):
         **kwargs
     ) -> None:
         """Plot the trajectory"""
-        self.check_state_index(x_indx)
-        self.check_state_index(y_indx)
         ax = plt.gca() if ax is None else ax
         xlocs = self.get_mean(x_indx, smoother=smoother)
         ylocs = self.get_mean(y_indx, smoother=smoother)
         cb = ax.plot(xlocs, ylocs, *args, **kwargs)
         return cb
 
+    @property
+    def metrics(self) -> dict[str, float]:
+        """Return the summary metrics"""
+        idf = self.df
+        metric_names = list(self.cur_metrics.keys())
+        return idf.loc[~idf[metric_names[0]].isna(), metric_names].sum()
+
+    @property
+    def smetrics(self) -> dict[str, float]:
+        """Return the summary metrics"""
+        idf = self.dfs
+        metric_names = list(self.cur_smetrics.keys())
+        return idf.loc[~idf[metric_names[0]].isna(), metric_names].sum()
+
     def plot_metric(
         self,
+        metric: str = 'NIS',
+        smoother=False,
         ax: plt.Axes | None = None,
-        metric: str = 'FilterNIS',
         **kwargs
     ) -> None:
         """Plot the time history of a performance metric"""
         ax = plt.gca() if ax is None else ax
-        if metric not in self.df.columns:
-            self.raiseit(f'Invalid metric name {metric}')
-        dfshort = self.df[~self.df[metric].isna()]
-        tvec = dfshort['TimeElapsed'].values
-        xvec = dfshort[metric].values
+        mnames = list(self.cur_metrics.keys())
+        if metric not in mnames:
+            self.raiseit(f'Invalid metric {metric}, choose from {mnames}')
+        idf = self.dfs if smoother else self.df
+        idfshort = idf[~idf[metric].isna()]
+        tvec = idfshort[self.time_colname].values
+        xvec = idfshort[metric].values
         ax.plot(tvec, xvec, **kwargs)
         ax.set_ylabel(metric)
         ax.set_xlim([tvec[0], tvec[-1]])
         ax.set_xlabel('Time elapsed (Seconds)')
 
-### Matrix/vector handling###
+    @property
+    def y(self) -> ndarray:
+        """Observation vector"""
+        return self._y
 
-    def __str__(self) -> SyntaxWarning:
-        """Print output"""
-        out_str = f'----{self.name}-{self.id}----\n'
-        out_str += f'State labels     : ' + ','.join(self.state_names) + '\n'
-        out_str += f'State dimension  : {self._nx}\n'
-        out_str += f'Observation dim  : {self._ny}\n'
-        out_str += f'Time interval dt : {self.dt}\n'
-        out_str += f'Tolerance in dt  : {self.dt_tol}\n'
-        return out_str
-
-    def check_state_index(self, indx: int):
-        """Check the validity of the state index"""
-        if indx > self.nx:
-            self.raiseit(f'Invalid {indx}, choose state_index < {self.nx}')
-
-    def check_state_name(self, iname: str):
-        """Check the validity of the state name"""
-        if iname not in self.state_names:
-            self.raiseit(
-                f'Invalid state {iname}, choose from {self.state_names}')
-
-    def mat_setter(self, in_mat, to_shape=None) -> ndarray:
-        """Returns a valid numpy array2d while checking for its shape"""
-        in_mat = np.atleast_2d(np.asarray_chkfinite(in_mat, dtype=float))
-        if in_mat.ndim != 2:
-            self.raiseit(f'Need 2d array, input dim: {in_mat.ndim}')
-        if to_shape is not None:
-            if in_mat.shape != to_shape:
-                print('Shape mismatch!')
-                self.raiseit(f'Required: {to_shape}, Input: {in_mat.shape}')
-        return in_mat
-
-    def vec_setter(self, in_vec, to_size=None) -> ndarray:
-        """Returns a valid numpy array1d while checking for its shape"""
-        in_vec = np.atleast_1d(np.asarray_chkfinite(in_vec, dtype=float))
-        in_vec = in_vec.flatten()
-        if to_size is not None:
-            if in_vec.size != to_size:
-                print('Size mismatch!')
-                self.raiseit(f'Required: {to_size}, Input: {in_vec.size}')
-        return in_vec
-
-    def float_setter(self, in_val) -> float:
-        """Return a valid scalar"""
-        in_val = np.asarray_chkfinite(in_val, dtype=float)
-        if in_val.size != 1:
-            self.raiseit(f'Need scalar!, change input:{in_val} to scalar')
-        return float(in_val.item())
-
-    def int_setter(self, in_val) -> int:
-        """Return a valid scalar"""
-        in_val = np.asarray_chkfinite(in_val, dtype=int)
-        if in_val.size != 1:
-            self.raiseit(f'Need scalar!, change input:{in_val} to scalar')
-        return int(in_val.item())
-
-    def raiseit(self, outstr: str = "") -> None:
-        """Raise exception with the out string"""
-        raise ValueError(f'{self.name}: {outstr}')
-
-
-### Getter for private class variables at last update/forecast###
-
-    @ property
-    def nx(self) -> int:
-        """Dimension of state space"""
-        return self._nx
-
-    @ property
-    def ny(self) -> int:
-        """Dimension of observation space"""
-        return self._ny
-
-    @ property
+    @property
     def m(self) -> ndarray:
-        """State mean"""
+        """State mean vector"""
         return self._m
 
-    @ property
+    @property
     def P(self) -> ndarray:
         """State covariance matrix"""
         return self._P
 
     @property
-    def lifespan(self):
-        """Returns the time duration of existence till the last update"""
-        return self.last_update_at - self.get_time_elapsed()[0]
-
-    @ property
-    def time_elapsed(self) -> float:
-        """Time elapsed so far """
-        return self._time_elapsed
-
-    @ property
-    def last_update_at(self) -> float:
-        """Time elapsed so far """
-        return self._last_update_at
-
-    @ property
-    def nis(self) -> float:
-        """Normalized innovation squared at the last update"""
-        return self._nis
-
-    @ property
-    def nees(self) -> float:
-        """Normalized estimation error squared at the last update"""
-        return self._nees
-
-    @ property
-    def loglik(self) -> float:
-        """Normalized estimation error squared at the last update"""
-        return self._loglik
-
-    @ property
-    def history(self) -> pd.DataFrame:
-        """History of the filter in the form of a dictionary"""
-        return self._history
-
-    @ property
-    def df(self) -> pd.DataFrame:
-        """History of the filter/smoother in the form of a pandas dataframe"""
-        return pd.DataFrame(self.history)
-
-    @ property
-    def df_filter(self) -> pd.DataFrame:
-        """History of the filter in the form of a pandas dataframe"""
-        smoother = False
-        dff = self.df.loc[:, ['TimeElapsed']].copy()
-        for iname in self.state_names:
-            dff[iname] = self.get_mean(iname, smoother=smoother)
-            dff[iname + '_var'] = self.get_cov(iname, smoother=smoother)
-        dff['Observation'] = self.df['Observation']
-        dff['Training'] = True
-        dff.loc[self.df['Observation'].isna(), 'Training'] = False
-        dff[self.id_col] = self.id
-        for cname in self.filter_metrics:
-            dff[cname] = self.df[cname]
-        # dff[dff.select_dtypes(np.float64).columns] = dff.select_dtypes(
-        #     np.float64).astype(np.float32)
-        return dff
-
-    @ property
-    def df_smoother(self) -> pd.DataFrame:
-        """History of the filter in the form of a pandas dataframe"""
-        if 'SmootherMean' not in self.df.columns:
-            self.raiseit('No smoother history found. Run smoother first!')
-        smoother = True
-        dff = self.df.loc[:, ['TimeElapsed']].copy()
-        for iname in self.state_names:
-            dff[iname] = self.get_mean(iname, smoother=smoother)
-            dff[iname + '_var'] = self.get_cov(iname, smoother=smoother)
-        dff['Training'] = True
-        dff.loc[self.df['Observation'].isna(), 'Training'] = False
-        dff[self.id_col] = self.id
-        for cname in self.smoother_metrics:
-            dff[cname] = self.df[cname]
-        # dff[dff.select_dtypes(np.float64).columns] = dff.select_dtypes(
-        #     np.float64).astype(np.float32)
-        # dff[dff.select_dtypes(np.int64).columns] = dff.select_dtypes(
-        #     np.int64).astype(np.int32)
-        return dff
-
-### Getter/Setter for Truth and observations###
-
-    @ property
-    def truth(self) -> ndarray:
-        """State truth"""
-        return self._truth
-
-    @ truth.setter
-    def truth(self, in_mat: ndarray | None) -> None:
-        """Setter for state truth"""
-        self._truth = self.vec_setter(
-            in_mat, self.nx) if in_mat is not None else None
-
-    @ property
-    def obs(self) -> ndarray:
-        """Observation vector"""
-        return self._obs
-
-    @ obs.setter
-    def obs(self, in_mat: ndarray | None) -> None:
-        """Setter for observation vector"""
-        self._obs = self.vec_setter(
-            in_mat, self.ny) if in_mat is not None else None
-
-    @ property
-    def state_names(self) -> list:
-        """Labels"""
-        return self._state_names
-
-    @ state_names.setter
-    def state_names(self, in_val: Sequence[str]) -> None:
-        """Setter for labels"""
-        if len(in_val) != self.nx:
-            self.raiseit(f'Number of labels should be {self.nx}')
-        self._state_names = [ix for ix in in_val]
-
-
-### Getter/Setter for matrices of dynamics model###
-
-
-    @ property
-    def F(self) -> ndarray:
-        """State transition matrix"""
-        return self._F
-
-    @ F.setter
-    def F(self, in_mat: ndarray) -> None:
-        """Setter for state transition matrix"""
-        self._F = self.mat_setter(in_mat, (self.nx, self.nx))
-
-    @ property
-    def G(self) -> ndarray:
-        """Model error Jacobian matrix"""
-        return self._G
-
-    @ G.setter
-    def G(self, in_mat: ndarray) -> None:
-        """Setter for state transition matrix"""
-        self._G = self.mat_setter(in_mat, (self.nx, self.nx))
-
-    @ property
-    def Q(self) -> ndarray:
-        """Process error covariance matrix"""
-        return self._Q
-
-    @ Q.setter
-    def Q(self, in_mat: ndarray) -> None:
-        """Setter for process error covariance matrix"""
-        self._Q = self.mat_setter(in_mat, (self.nx, self.nx))
-
-    @ property
-    def qbar(self) -> ndarray:
-        """Process error mean"""
-        return self._qbar
-
-    @ qbar.setter
-    def qbar(self, in_mat: ndarray) -> None:
-        """Setter for process error mean"""
-        self._qbar = self.vec_setter(in_mat, self.nx)
-
-### Getter/Setter for matrices of observation model###
-
-    @ property
-    def H(self) -> ndarray:
-        """observation matrix"""
-        return self._H
-
-    @ H.setter
-    def H(self, in_mat: ndarray) -> None:
-        """Setter for observation-state relation"""
-        self._H = self.mat_setter(in_mat, (self.ny, self.nx))
-
-    @ property
-    def J(self) -> ndarray:
-        """observation error jacobian matrix"""
-        return self._J
-
-    @ J.setter
-    def J(self, in_mat: ndarray) -> None:
-        """Setter for observation-state relation"""
-        self._J = self.mat_setter(in_mat, (self.ny, self.ny))
-
-    @ property
     def R(self) -> ndarray:
-        """observation error covariance matrix"""
+        """Observation error covariance matrix"""
         return self._R
 
-    @ R.setter
-    def R(self, in_mat: ndarray) -> None:
-        """Setter for observation error covariance matrix"""
-        self._R = self.mat_setter(in_mat, (self.ny, self.ny))
+    @m.setter
+    def m(self, in_vec: ndarray) -> None:
+        """Setter for m vector"""
+        self._m = validate_array(in_vec, self.nx, return_array=True)
 
-    @ property
-    def rbar(self) -> ndarray:
-        """Observation error mean"""
-        return self._rbar
+    @P.setter
+    def P(self, in_mat: ndarray | None) -> None:
+        """Setter for m vector"""
+        self._P = validate_array(in_mat, (self.nx, self.nx), return_array=True)
 
-    @ rbar.setter
-    def rbar(self, in_mat: ndarray) -> None:
-        """Setter for obs error mean"""
-        self._rbar = self.vec_setter(in_mat, self.ny)
+    @R.setter
+    def R(self, in_mat: ndarray | None) -> None:
+        """Setter for m vector"""
+        if in_mat is not None:
+            self._R = validate_array(in_mat, (self.ny, self.ny),
+                                     return_array=True)
+        else:
+            self._R = None
 
-    @ staticmethod
-    def symmetrize(in_mat: ndarray) -> ndarray:
-        """Return a symmetrized version of NumPy array"""
-        # if np.any(np.isnan(in_mat)) or np.any(in_mat.diagonal() < 0.):
-        #     print('\np update went wrong!')
-        #     print(in_mat.diagonal())
-        return (in_mat + in_mat.T) / 2.
+    @y.setter
+    def y(self, in_vec: ndarray | None) -> None:
+        """Setter for m vector"""
+        if in_vec is not None:
+            self._y = validate_array(in_vec, self.ny, return_array=True)
+        else:
+            self._y = None
+
+
+# def initiate_state_by_dict(
+#     self,
+#     dict_of_mean_std: dict[str, tuple[float, float]]
+# ) -> None:
+#     """Initiate the time, state mean and covariance matrix"""
+#     self._m = np.zeros((self.nx,))
+#     self._P = np.eye(self.nx)
+#     for i, iname in enumerate(self.state_names):
+#         if iname in dict_of_mean_std.keys():
+#             self._m[i] = dict_of_mean_std[iname][0]
+#             self._P[i, i] = dict_of_mean_std[iname][1]**2

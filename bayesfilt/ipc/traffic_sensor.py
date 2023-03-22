@@ -6,6 +6,7 @@ import datetime
 from typing import List, Dict, Tuple
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib import patches
 from bayesfilt.ssm import ObservationModel
@@ -67,6 +68,35 @@ class TrafficSensor:
         ax.plot(self.df.loc[:, self.x_col],
                 self.df.loc[:, self.y_col],
                 *args, **kwargs)
+
+    def plot_time_history(
+            self,
+            vars_to_plot: List[str],
+            lstyle: str,
+            fig=None,
+            ax=None
+    ):
+        if fig is None:
+            ncols = len(vars_to_plot) // 2 + len(vars_to_plot) % 2
+            fig, ax = plt.subplots(
+                ncols, 2,
+                figsize=(9, 1.5 + ncols * 1),
+                sharex=True
+            )
+            ax = ax.flatten()
+        assert 'TimeElapsed' in self.df.columns, 'Need TimeElapsed for time series'
+        for i, ivar in enumerate(vars_to_plot):
+            if ivar in self.df.columns:
+                ax[i].plot(
+                    self.df['TimeElapsed'],
+                    self.df[ivar],
+                    lstyle,
+                    markersize=1.
+                )
+                ax[i].set_ylabel(ivar)
+                ax[i].grid(True)
+        fig.tight_layout()
+        return fig, ax
 
     def draw_namebox(self, ax, xyloc: Tuple[float, float], **kwargs) -> None:
         """Draw a box with name of the sensor"""

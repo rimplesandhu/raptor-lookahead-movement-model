@@ -5,18 +5,14 @@ from functools import partial
 import numpy as np
 from numpy import ndarray
 from .motion_model import MotionModel
-from .utils import subtract_states, state_mean_func, symmetrize
 
 
 class CTRV_POINT(MotionModel):
-    # pylint: disable=invalid-name
     """Class for Constant Turn Rate and Velocity for a point object"""
 
     def __init__(self):
         super().__init__(nx=5, name='CTRV_POINT')
         self.state_names = ['X', 'Y', 'Heading', 'Speed', 'HeadingRate']
-        self.subtract_states = partial(subtract_states, angle_idx=2)
-        self.state_mean_func = partial(state_mean_func, angle_idx=2)
 
     @property
     def phi_names(self):
@@ -62,7 +58,7 @@ class CTRV_POINT(MotionModel):
         self._Q[2, 4] = ssq[1] * self.dt ** 2 / 2.
         self._Q[3, 3] = ssq[0] * self.dt ** 1 / 1.
         self._Q[4, 4] = ssq[1] * self.dt ** 1 / 1.
-        self._Q = symmetrize(self.Q)
+        self._Q = self.symmetrize(self.Q)
         return self.Q
 
 
@@ -74,8 +70,6 @@ class CTRV_RECT(MotionModel):
         self.state_names = ['X', 'Y', 'Heading', 'Speed', 'HeadingRate',
                             'Width', 'Length']
         self._ctrv = CTRV_POINT()
-        self.subtract_states = partial(subtract_states, angle_idx=2)
-        self.state_mean_func = partial(state_mean_func, angle_idx=2)
 
     @property
     def phi_names(self):
@@ -87,7 +81,6 @@ class CTRV_RECT(MotionModel):
         u: ndarray | None = None
     ) -> ndarray:
         """Model dynamics function"""
-        # x = self.vec_setter(x, self.nx)
         next_x = deepcopy(x)
         next_x[0:5] = self._ctrv.func_f(x[0:5])
         next_x[5] = x[5]
@@ -120,12 +113,10 @@ class CTRA_POINT(MotionModel):
         super().__init__(nx=6, name='CTRA_POINT')
         self.state_names = ['X', 'Y', 'Heading', 'Speed',
                             'HeadingRate', 'Acceleration']
-        self.subtract_states = partial(subtract_states, angle_idx=2)
-        self.state_mean_func = partial(state_mean_func, angle_idx=2)
 
     @property
     def phi_names(self):
-        return ['sigma_omega', 'sigma_accn']
+        return ['sigma_omega', 'sigma_accn', 'min_speed']
 
     def func_f(
         self,
@@ -133,9 +124,8 @@ class CTRA_POINT(MotionModel):
         u: ndarray | None = None
     ) -> ndarray:
         """Model dynamics function"""
-        # x = self.vec_setter(x, self.nx)
-        next_x = deepcopy(x)
-        if x[3] < 1.75:
+        next_x = np.asarray(deepcopy(x))
+        if x[3] < self.phi['min_speed']:
             next_x[2] = x[2]
             next_x[3] = x[3]
             next_x[4] = 0.
@@ -181,7 +171,7 @@ class CTRA_POINT(MotionModel):
         self._Q[3, 5] = ssq[0] * self.dt ** 2 / 2.
         self._Q[4, 4] = ssq[1] * self.dt ** 1 / 1.
         self._Q[5, 5] = ssq[0] * self.dt ** 1 / 1.
-        self._Q = symmetrize(self.Q)
+        self._Q = self.symmetrize(self.Q)
         return self.Q
 
 
@@ -193,8 +183,6 @@ class CTRA_RECT(MotionModel):
         self.state_names = ['X', 'Y', 'Heading', 'Speed', 'HeadingRate',
                             'Acceleration', 'Width', 'Length']
         self._ctra = CTRA_POINT()
-        self.subtract_states = partial(subtract_states, angle_idx=2)
-        self.state_mean_func = partial(state_mean_func, angle_idx=2)
 
     @property
     def phi_names(self):
@@ -206,7 +194,6 @@ class CTRA_RECT(MotionModel):
         u: ndarray | None = None
     ) -> ndarray:
         """Model dynamics function"""
-        # x = self.vec_setter(x, self.nx)
         next_x = deepcopy(x)
         next_x[0:6] = self._ctra.func_f(x[0:6])
         next_x[6] = x[6]
@@ -246,17 +233,14 @@ class CTRA_RECT(MotionModel):
 #         u: ndarray | None = None
 #     ) -> ndarray:
 #         """Model dynamics function"""
-#         x = self.vec_setter(x, self.nx)
 #         next_x = x.copy()
 #         next_x[0:5] = self._ctrv.f(x[0:5])
 #         next_x[5] = x[5]
 #         next_x[6] = x[6]
 #         next_x[7] = x[7]
 #         if q is not None:
-#             q = self.vec_setter(q, self.nx)
 #             next_x += q
 #         if u is not None:
-#             u = self.vec_setter(u, self.nx)
 #             next_x += u
 #         return next_x
 
@@ -268,7 +252,6 @@ class CTRA_RECT(MotionModel):
 #     ) -> None:
 #         """Update system parameters and matrices"""
 #         self._dt = self.float_setter(dt)
-#         self._sigmas = self.vec_setter(sigmas, 5)
 #         self._ctrv.update(dt, sigmas[0:2])
 
 #     def compute_F(
@@ -344,7 +327,6 @@ class CTRA_RECT(MotionModel):
 #         u: ndarray | None = None
 #     ) -> ndarray:
 #         """Model dynamics function"""
-#         x = self.vec_setter(x, self.nx)
 #         next_x = deepcopy(x)
 #         # next_x[4] = min(abs(next_x[4]), np.pi / 7.) * \
 #         #     (next_x[4] / abs(next_x[4]))
@@ -383,10 +365,8 @@ class CTRA_RECT(MotionModel):
 #         #curv = next_x[4] / next_x[3]
 
 #         if q is not None:
-#             q = self.vec_setter(q, self.nx)
 #             next_x += q
 #         if u is not None:
-#             u = self.vec_setter(u, self.nx)
 #             next_x += u
 #         return next_x
 
@@ -398,7 +378,6 @@ class CTRA_RECT(MotionModel):
 #     ) -> None:
 #         """Update system parameters and matrices"""
 #         self._dt = self.float_setter(dt)
-#         self._sigmas = self.vec_setter(sigmas, 2)
 
 #     def compute_F(
 #         self,
@@ -456,16 +435,6 @@ class CTRA_RECT(MotionModel):
 
 #         return out_Q
 
-#     def subtract(self, x0: ndarray, x1: ndarray):
-#         """Residual function for computing difference among states"""
-#         x0 = self.vec_setter(x0, self.nx)
-#         x1 = self.vec_setter(x1, self.nx)
-#         xres = x0 - x1
-#         xres[2] = xres[2] % (2.0 * np.pi)
-#         if xres[2] > np.pi:
-#             xres[2] -= 2. * np.pi
-#         #xres[3] = max(x0[3], 0) - max(x1[3], 0)
-#         return xres
 
 #     def compute_G(
 #         self,
@@ -492,7 +461,6 @@ class CTRA_RECT(MotionModel):
 #         u: ndarray | None = None
 #     ) -> ndarray:
 #         """Model dynamics function"""
-#         x = self.vec_setter(x, self.nx)
 #         next_x = deepcopy(x)
 #         next_x[2] += x[4] * self.dt
 #         next_x[3] += x[5] * self.dt
@@ -513,10 +481,8 @@ class CTRA_RECT(MotionModel):
 #         next_x[7] += x[8] * self.dt
 
 #         if q is not None:
-#             q = self.vec_setter(q, self.nx)
 #             next_x += q
 #         if u is not None:
-#             u = self.vec_setter(u, self.nx)
 #             next_x += u
 #         return next_x
 

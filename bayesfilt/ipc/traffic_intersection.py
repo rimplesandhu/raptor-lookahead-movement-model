@@ -3,15 +3,15 @@
 
 # pylint: disable=invalid-name
 from typing import Tuple, Sequence, Optional
+import warnings
 import numpy as np
 import pandas as pd
-import shapely.geometry as geom
 from shapely.geometry.polygon import Polygon
 from shapely.geometry import LineString, Point
-from shapely.ops import split, cascaded_union
+from shapely.ops import split
 from shapely.affinity import rotate
-import warnings
 from shapely.errors import ShapelyDeprecationWarning
+import shapely
 warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
 
 
@@ -147,18 +147,22 @@ class TrafficIntersection:
         axs.set_xlim([self.extent[0], self.extent[1]])
         axs.set_ylim([self.extent[2], self.extent[3]])
 
-    def within_this_zone(self, zone_name, coords) -> None:
+    def within_this_zone(self, zone_name, xlocs, ylocs) -> None:
         """Check if point is within this zone"""
         self.check_zone_name(zone_name)
-        return self._df.loc[zone_name, 'zone'].contains(Point(coords))
+        vec_func = np.vectorize(self.df.loc[zone_name, 'zone'].contains)
+        points = np.empty(len(xlocs), dtype='object')
+        for i, (ix, iy) in enumerate(zip(xlocs, ylocs)):
+            points[i] = Point(ix, iy)
+        return vec_func(points)
 
-    def within_this_type(self, type_name, coords) -> None:
+    def within_this_type(self, type_name, xlocs, ylocs) -> None:
         """Check if point is within this zone"""
         self.check_type_name(type_name)
-        out = False
-        for izone in self._df.loc[self._df['type'] == type_name, 'zone']:
-            out = out | izone.contains(Point(coords))
-        return out
+        out_bool = False
+        for izone in self.df.loc[self.df['type'] == type_name].index.tolist():
+            out_bool = out_bool | self.within_this_zone(izone, xlocs, ylocs)
+        return out_bool
 
     def check_zone_name(self, name):
         """Check if name exists in the dataframe"""
@@ -178,15 +182,18 @@ class TrafficIntersection:
         return self._df
 
 
-def get_csprings_parking_lot():
+def get_csprings_parking_lot(big: bool = True):
     """Colorado springs parking lot"""
     silver_pole_coords = (0, 0)
     silver_pole_hor_angle = 60.  # from north
     black_pole_coords = (-2, 2)
     black_pole_hor_angle = 85  # from north
     radar_fov = 110  # degrees
-    radar_range = 100.
-    cs = TrafficIntersection(extent=[-40, 80, -10, 110])
+    radar_range = 150.
+    if big:
+        cs = TrafficIntersection(extent=[-75, 85, -10, 150])
+    else:
+        cs = TrafficIntersection(extent=[-70, 70, -10, 130])
     cs.add_circular_zone('radar_silver', silver_pole_coords, ztype='radar')
     cs.add_circular_zone('radar_black', black_pole_coords, ztype='radar')
     cs.add_arc_zone('radar_silver_coverage', silver_pole_coords,
@@ -199,4 +206,7 @@ def get_csprings_parking_lot():
                     start_angle=black_pole_hor_angle - radar_fov / 2,
                     end_angle=black_pole_hor_angle + radar_fov / 2,
                     ztype='radar_coverage', reverse=False)
+    cs.add_polygon_zone('train_tracks',
+                        [(70, 25), (0, 135), (20, 155), (90, 45)],
+                        ztype='exclusions')
     return cs

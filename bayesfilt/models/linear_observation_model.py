@@ -1,4 +1,5 @@
 """Classes for defining linear observation models """
+# pylint: disable=invalid-name
 from typing import List
 import numpy as np
 from numpy import ndarray
@@ -6,7 +7,6 @@ from .observation_model import ObservationModel
 
 
 class LinearObservationModel(ObservationModel):
-    # pylint: disable=invalid-name
     """Class for defining a linear observation model"""
 
     def __init__(

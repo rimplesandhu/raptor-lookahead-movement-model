@@ -1,4 +1,5 @@
-"""Classes for defining an observation model"""
+"""Base class for defining an observation model"""
+# pylint: disable=invalid-name
 from typing import Callable, List
 from numpy import ndarray
 import numpy as np
@@ -6,7 +7,6 @@ from .state_space_model import StateSpaceModel
 
 
 class ObservationModel(StateSpaceModel):
-    # pylint: disable=invalid-name
     """Class for defining an observation model"""
 
     def __init__(
@@ -20,7 +20,7 @@ class ObservationModel(StateSpaceModel):
 
         # model parameters
         super().__init__(nx=nx, name=name, verbose=verbose)
-        self._ny = self.int_setter(ny)  # dimension of observation vector
+        self._ny = self.scaler(ny, dtype='int32')
         self._obs_names = [f'y_{i}' for i in range(self.ny)]
         self.ignore_inds_for_loglik = ignore_inds_for_loglik
 
@@ -30,7 +30,7 @@ class ObservationModel(StateSpaceModel):
         self._R: ndarray | Callable | None = None  # Error covariance matrix
 
     def __str__(self):
-        out_str = StateSpaceModel.__str__(self)
+        out_str = super().__str__()
         out_str += f'Obs States({self.ny}): ' + ','.join(self.obs_names) + '\n'
         if self.verbose:
             out_str += f'H:\n {np.array_str(np.array(self.H), precision=3)}\n'
@@ -61,10 +61,7 @@ class ObservationModel(StateSpaceModel):
     @R.setter
     def R(self, in_mat: ndarray) -> ndarray:
         """Measurement error covariance matrix"""
-        self._R = self.mat_setter(in_mat, (self.ny, self.ny))
-        assert self.check_symmetric(self.R), f'{self.name}: R not symmetric!'
-        # if not self.check_symmetric(self.R):
-        #     print(f'{self.name}: R matrix not symmetric!')
+        self._R = self.matrix(in_mat, (self.ny, self.ny), dtype='float64')
 
     @property
     def obs_names(self) -> list[str]:
@@ -74,6 +71,4 @@ class ObservationModel(StateSpaceModel):
     @obs_names.setter
     def obs_names(self, in_list) -> None:
         """Setter for labels"""
-        if len(in_list) != self.ny:
-            self.raiseit(f'Number of observation labels should be {self.ny}')
-        self._obs_names = in_list
+        self._obs_names = self.valid_list(in_list, self.ny)

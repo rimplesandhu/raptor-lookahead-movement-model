@@ -1,111 +1,109 @@
 """Unscented Kalman Filter class"""
+# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-public-methods
+# pylint: disable=invalid-name
 import numpy as np
 from .kalman_filter_base import KalmanFilterBase
 from .unscented_transform import UnscentedTransform
 
 
 class UnscentedKalmanFilter(KalmanFilterBase):
-    # pylint: disable=too-many-instance-attributes
-    # pylint: disable=invalid-name
-    """Unscented Kalman Filter class"""
+    """Unscented Kalman Filter"""
 
     def __init__(
         self,
-        nx: int,
-        ny: int,
-        dt: float,
-        object_id: str | int = 0,
+        *args,
         **kwargs
     ):
-        super().__init__(nx, ny, dt, object_id)
-        self.name = 'UKF'
-        self.ut = UnscentedTransform(dim=nx, **kwargs)
+        super().__init__(*args, **kwargs)
+        assert 'alpha' in self.pars, self.raiseit('Need alpha in pars of UKF!')
+        assert 'beta' in self.pars, self.raiseit('Need beta in pars of UKF!')
+        kappa = self.pars['kappa'] if 'kappa' in self.pars else None
+        use_chol = self.pars['use_cholesky'] if 'use_cholesky' in self.pars else None
+        self.ut_fun_f = UnscentedTransform(
+            dim=self.nx,
+            alpha=self.pars['alpha'],
+            beta=self.pars['beta'],
+            kappa=kappa,
+            use_cholesky=use_chol,
+            fun_subtract_in=self.fun_subtract_x,
+            model_fun=self.fun_f,
+            fun_subtract_out=self.fun_subtract_x,
+            fun_mean_out=self.fun_weighted_mean_x
+        )
+        self.ut_fun_h = UnscentedTransform(
+            dim=self.nx,
+            alpha=self.pars['alpha'],
+            beta=self.pars['beta'],
+            kappa=kappa,
+            use_cholesky=use_chol,
+            fun_subtract_in=self.fun_subtract_x,
+            model_fun=self.fun_h,
+            fun_subtract_out=self.fun_subtract_y,
+            fun_mean_out=self.fun_weighted_mean_y
+        )
 
-    def validate(self) -> None:
-        """Check if system matrices/functions are initiated"""
-        super().validate()
-        if (self.func_f is None) and (self.F is None):
-            self.raiseit('UKF: Need to define either function f() or matrix F')
-        if (self.func_h is None) and (self.H is None):
-            self.raiseit('UKF: Need to define either function h() or matrix H')
+    def initiate(self, *args, **kwargs):
+        """Initiate function"""
+        super().initiate(*args, **kwargs)
+        if self.fun_f is None:
+            self.raiseit('Need dynamics function fun_f to initiate UKF!')
+        if self.fun_h is None:
+            self.raiseit('Need obs function fun_h to initiate UKF!')
+        if self.fun_Q is None:
+            self.raiseit('Need function fun_Q to initiate UKF!')
 
     def forecast(self) -> None:
         """UKF forecast step"""
         super().forecast()
-        # print('----', self.time_elapsed)
-        Qmat = self.func_Q(self.m) if self.Q is None else self.Q
-        Qmat = self.symmetrize(Qmat) + np.diag([self.epsilon] * self.nx)
-        # print(np.array_str(Qmat, precision=1, suppress_small=True))
-        if self.F is None:
-            self._m, new_P, _ = self.ut.transform(
-                self.m, self.P, self.func_f,
-                self.x_subtract, self.x_subtract, self.x_mean_fn
-            )
-        else:
-            self._m = self.F @ self.m + self.qbar
-            new_P = self.F @ self.P @ self.F.T
-        # print(np.array_str(new_P, precision=1, suppress_small=True))
-        new_P += self.G @ Qmat @ self.G.T
-        new_P = self.symmetrize(new_P) + np.diag([self.epsilon] * self.nx)
-        if not np.any(np.linalg.eigvals(new_P) < 0):
-            self._P = new_P
-        self._store_this_step()
+        self.m, self.P, _ = self.ut_fun_f.transform(self.m, self.P)
+        Qmat = self.fun_Q(self.m, self.vec_qbar)
+        Gmat = self.fun_Gjac(self.m, self.vec_qbar)
+        self.P += Gmat @ Qmat @ Gmat.T
+        self.P = self.symmetrize(self.P)
+        self.store_this_timestep()
 
     def update(self) -> None:
         """UKF update step"""
-        if self.H is None:
-            y_pred, Smat, Pxy = self.ut.transform(
-                self.m, self.P, self.func_h,
-                self.x_subtract, self.y_subtract, self.y_mean_fn
-            )
-        else:
-            y_pred = self.H @ self.m
-            Smat = self.H @ self.P @ self.H.T
-            Pxy = self.P @ self.H.T
-        Smat += self.J @ self.R @ self.J.T
-        y_res = self.y_subtract(self.obs, y_pred)
+
+        yhat, Smat, Pxy = self.ut_fun_h.transform(self.m, self.P)
+        Hmat = self.fun_Hjac(self.m, self.vec_rbar)
+        Jmat = self.fun_Jjac(self.m, self.vec_rbar)
+        Smat += Jmat @ self.R @ Jmat.T
+        yres = self.fun_subtract_y(self.y, yhat)
         Smat_inv = np.linalg.pinv(Smat, hermitian=True)
         Kmat = Pxy @ Smat_inv
-        x_res = Kmat @ y_res
-        self._m = self.x_add(self.m, x_res)
-        Tmat = np.eye(self.nx) - Kmat @ self.H
-        self._P = Tmat @ self.P @ Tmat.T + Kmat @ self.R @ Kmat.T  # Joseph
+        xres = Kmat @ yres
+        self.m = self.fun_subtract_x(self.m, -xres)
+        Tmat = np.eye(self.nx) - Kmat @ Hmat
+        self.P = Tmat @ self.P @ Tmat.T + Kmat @ self.R @ Kmat.T  # Joseph
         # self._P -= Kmat @ Smat @ Kmat.T
-        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
-        Pmat_inv = np.linalg.pinv(self.P, hermitian=True, rcond=1e-10)
-        self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
-        self._store_this_step(update=True)
+        self.P = self.symmetrize(self.P)
+        Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
+        self.cur_metrics = self.compute_metrics(
+            xres, Pmat_inv, yres, Smat_inv)
+        self.store_this_timestep(update=True)
 
     def _backward_filter(self, smean_next, scov_next):
         """Backward filter"""
-        if self.F is None:
-            mhat, Phat, Cmat = self.ut.transform(
-                self.m, self.P, self.func_f,
-                self.x_subtract, self.x_subtract, self.x_mean_fn)
-        else:
-            mhat = self.F @ self.m
-            Phat = self.F @ self.P @ self.F.T
-            Cmat = self.P @ self.F.T
-        Qmat = self.func_Q(self.m) if self.Q is None else self.Q
-        Phat += self.G @ Qmat @ self.G.T
-        Dmat = Cmat @ np.linalg.pinv(Phat, hermitian=True, rcond=1e-10)
+        mhat, Phat, Cmat = self.ut_fun_f.transform(self.m, self.P)
+        Gmat = self.fun_Gjac(self.m, self.vec_qbar)
+        Qmat = self.fun_Q(self.m, self.vec_qbar)
+        Phat += Gmat @ Qmat @ Gmat.T
         Dmat = Cmat @ np.linalg.pinv(Phat, hermitian=True)
-        self._m = self.x_add(self.m, Dmat @ self.x_subtract(smean_next, mhat))
-        self._P += Dmat @ (scov_next - Phat) @ Dmat.T
-        self._P = self.symmetrize(self.P) + np.diag([self.epsilon] * self.nx)
-        if self.obs is not None:
-            if self.H is None:
-                y_pred, Smat, Pxy = self.ut.transform(
-                    self.m, Phat, self.func_h,
-                    self.x_subtract, self.y_subtract, self.y_mean_fn)
-            else:
-                y_pred = self.H @ self.m
-                Smat = self.H @ Phat @ self.H.T
-                Pxy = Phat @ self.H.T
-            Smat += self.J @ self.R @ self.J.T
-            y_res = self.y_subtract(self.obs, y_pred)
+        xres = Dmat @ self.fun_subtract_x(smean_next, mhat)
+        self.m = self.fun_subtract_x(self.m, -xres)
+        self.P += Dmat @ (scov_next - Phat) @ Dmat.T
+        self.P = self.symmetrize(self.P)
+        self.cur_smetrics = self.compute_metrics()
+        if self.y is not None:
+            yhat, Smat, Pxy = self.ut_fun_h.transform(self.m, Phat)
+            Jmat = self.fun_Jjac(self.m, self.vec_rbar)
+            Smat += Jmat @ self.R @ Jmat.T
+            yres = self.fun_subtract_y(self.y, yhat)
             Smat_inv = np.linalg.pinv(Smat, hermitian=True)
             Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
             Kmat = Pxy @ Smat_inv
-            x_res = np.dot(Kmat, y_res)
-            self._compute_metrics(x_res, Pmat_inv, y_res, Smat_inv)
+            xres = np.dot(Kmat, yres)
+            self.cur_smetrics = self.compute_metrics(
+                xres, Pmat_inv, yres, Smat_inv)
