@@ -2,8 +2,6 @@
 # pylint: disable=too-many-instance-attributes
 # pylint: disable=too-many-public-methods
 # pylint: disable=invalid-name
-from typing import Callable
-from functools import partial
 from copy import deepcopy
 from dataclasses import dataclass, field
 import numpy as np
@@ -14,6 +12,7 @@ from numpy import ndarray
 @dataclass
 class FilterAttributesDynamic:
     """Dynamic attributes of a filter"""
+    objectid: int = 0
     _y: ndarray | None = None
     _m: ndarray | None = None
     _P: ndarray | None = None

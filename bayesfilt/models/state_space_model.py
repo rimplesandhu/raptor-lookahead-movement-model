@@ -21,7 +21,7 @@ class StateSpaceModel(ABC):
         self._phi = ParameterDict(self.phi_names)  # parameter dict
         self.verbose = verbose
 
-    def __str__(self):
+    def __repr__(self):
         out_str = f'----{self.name}----\n'
         out_str += f'States    ({self.nx}): ' + \
             ','.join(self.state_names) + '\n'
@@ -111,7 +111,7 @@ class StateSpaceModel(ABC):
 
     def raiseit(self, outstr: str = "", exception=ValueError) -> None:
         """Raise exception with the out string"""
-        raise exception(f'{self.__class__.__name__}[{self.name}]: {outstr}')
+        raise exception(f'{self.__class__.__name__}: {outstr}')
 
     # def warnit(self, outstr: str = "") -> None:
     #     """Raise warning with the out string"""

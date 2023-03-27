@@ -22,8 +22,8 @@ class MotionModel(StateSpaceModel):
         self._G: ndarray = np.eye(self.nx)  # Error Jacobian matrix
         self._qbar: ndarray = np.zeros((self.nx,))  # Error mean vector
 
-    def __str__(self):
-        out_str = super().__str__()
+    def __repr__(self):
+        out_str = super().__repr__()
         out_str += f'dt: {self.dt} second\n'
         if self.verbose:
             out_str += f'qbar: {np.array_str(np.array(self.qbar), precision=3)}\n'

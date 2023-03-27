@@ -1,5 +1,4 @@
 """ Commonly used functions """
-from typing import Optional, Union, Dict, List
 import numpy as np
 from numpy import ndarray
 # pylint: disable=invalid-name
@@ -28,8 +27,8 @@ def subtract_func(
 
 
 def mean_func(
-    list_of_vecs: List[ndarray],
-    list_of_wgts: List[float] | None = None,
+    list_of_vecs: list[ndarray],
+    list_of_wgts: list[float] | None = None,
     angle_index: int | None = None
 ) -> ndarray:
     """Returns means of vectors with wgts while handling angles"""

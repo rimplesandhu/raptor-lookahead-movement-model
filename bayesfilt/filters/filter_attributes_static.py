@@ -17,10 +17,10 @@ class FilterAttributesStatic:
     nx: int
     ny: int
     dt: float
-    objectid: int = 0
     dt_tol: float | None = None
     epsilon: float = 1e-6
     state_names: list[str] | None = None
+    verbose: bool = False
     pars: dict[str, float] = field(default_factory=dict, repr=True)
 
     # model functions
@@ -59,25 +59,31 @@ class FilterAttributesStatic:
             object.__setattr__(self, 'vec_qbar', np.zeros(self.nx))
         if self.vec_rbar is None:
             object.__setattr__(self, 'vec_rbar', np.zeros(self.ny))
-        if self.mat_G is None:
-            object.__setattr__(self, 'mat_G', np.eye(self.nx))
-        if self.mat_J is None:
-            object.__setattr__(self, 'mat_J', np.eye(self.ny))
         if self.state_names is None:
             object.__setattr__(self, 'state_names',
                                [f'x_{i}' for i in range(self.nx)])
 
         # mat_F takes priority over everything
+        if self.mat_G is None:
+            object.__setattr__(self, 'mat_G', np.eye(self.nx))
+            if self.fun_Gjac is None:
+                object.__setattr__(
+                    self, 'fun_Gjac', partial(self.v2m, self.mat_G))
+
+        if self.mat_J is None:
+            object.__setattr__(self, 'mat_J', np.eye(self.ny))
+            if self.fun_Jjac is None:
+                object.__setattr__(
+                    self, 'fun_Jjac', partial(self.v2m, self.mat_J))
+
         if (self.mat_F is not None) and (self.fun_f is None):
             object.__setattr__(self, 'fun_f', partial(self.v2v, self.mat_F))
             object.__setattr__(self, 'fun_Fjac', partial(self.v2m, self.mat_F))
-            object.__setattr__(self, 'fun_Gjac', partial(self.v2m, self.mat_G))
 
         # mat_H takes priority over everything
         if (self.mat_H is not None) and (self.fun_h is None):
             object.__setattr__(self, 'fun_h', partial(self.v2v, self.mat_H))
             object.__setattr__(self, 'fun_Hjac', partial(self.v2m, self.mat_H))
-            object.__setattr__(self, 'fun_Jjac', partial(self.v2m, self.mat_J))
 
         if self.mat_Q is not None:
             object.__setattr__(self, 'fun_Q', partial(self.v2m, self.mat_Q))

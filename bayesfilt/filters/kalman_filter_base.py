@@ -2,9 +2,8 @@
 # pylint: disable=too-many-instance-attributes
 # pylint: disable=too-many-public-methods
 # pylint: disable=invalid-name
-from collections.abc import Sequence, Callable
-from dataclasses import dataclass, field
-from abc import ABC, abstractmethod
+from collections.abc import Sequence
+from abc import abstractmethod
 from copy import deepcopy
 import numpy as np
 from numpy import ndarray
@@ -54,6 +53,18 @@ class KalmanFilterBase(FilterAttributesStatic, FilterAttributesDynamic):
         self._dfraw.clear()
         self.cur_metrics = self.compute_metrics()
         self.store_this_timestep()
+
+    def initiate_state(
+        self,
+        dict_of_mean_std: dict[str, tuple[float, float]]
+    ) -> None:
+        """Initiate the time, state mean and covariance matrix"""
+        self.m = np.zeros((self.nx,))
+        self.P = np.eye(self.nx)
+        for i, iname in enumerate(self.state_names):
+            if iname in dict_of_mean_std.keys():
+                self.m[i] = dict_of_mean_std[iname][0]
+                self.P[i, i] = dict_of_mean_std[iname][1]**2
 
     @abstractmethod
     def forecast(self) -> None:
@@ -105,35 +116,21 @@ class KalmanFilterBase(FilterAttributesStatic, FilterAttributesDynamic):
             if self.R is None:
                 self.raiseit('Need to initiate obs cov matrix R')
 
-        tloop = tqdm(enumerate(list_of_time), total=len(list_of_time),
-                     desc=self.__class__.__name__ + '-Forward ')
+        tloop = enumerate(list_of_time)
+        if self.verbose:
+            tloop = tqdm(enumerate(list_of_time), total=len(list_of_time),
+                         desc=self.__class__.__name__)
         for k, itime in tloop:
             if self.time_elapsed - itime > self.dt_tol:
                 istr = f'y at {itime}, x at {self.time_elapsed}'
                 self.raiseit(f'Skipping observation, {istr}!')
-            if abs(self._time_elapsed - itime) < self.dt_tol:
-                self.y = list_of_obs[k]
-                if list_of_R is not None:
-                    self.R = list_of_R[k]
-                self.update()
-            else:
-                self.forecast()
-                self._P = sym_posdef_matrix(self.P)
-
-        # k = 0
-        # while k < len(list_of_time):
-        #     if self.time_elapsed - list_of_time[k] > self.dt_tol:
-        #         istr = f'y at {list_of_time[k]}, x at {self.time_elapsed}'
-        #         self.raiseit(f'Skipping observation, {istr}!')
-        #     if abs(self._time_elapsed - list_of_time[k]) < self.dt_tol:
-        #         self.y = list_of_obs[k]
-        #         if list_of_R is not None:
-        #             self.R = list_of_R[k]
-        #         self.update()
-        #         k += 1
-        #     else:
-        #         self.forecast()
-        #         self._P = sym_posdef_matrix(self.P)
+            if itime - self.time_elapsed >= self.dt:
+                self.forecast_upto(itime)
+                self.P = sym_posdef_matrix(self.P)
+            self.y = list_of_obs[k]
+            if list_of_R is not None:
+                self.R = list_of_R[k]
+            self.update()
 
     def smoother(self):
         """Run smoothing assuming model/measurement eq are time invariant"""
@@ -145,8 +142,10 @@ class KalmanFilterBase(FilterAttributesStatic, FilterAttributesDynamic):
         for cname in colnames:
             self._dfraw[cname] = []
         self.cur_smetrics = self.compute_metrics()
-        tloop = tqdm(reversed(range(nsteps)), total=nsteps,
-                     desc=self.__class__.__name__ + '-Backward')
+        tloop = reversed(range(nsteps))
+        if self.verbose:
+            tloop = tqdm(reversed(range(nsteps)), total=nsteps,
+                         desc=self.__class__.__name__ + 'S')
         for i in tloop:
             self.m = deepcopy(self._dfraw[self.mean_colname][i])
             self.P = deepcopy(self._dfraw[self.cov_colname][i])
@@ -261,10 +260,10 @@ class KalmanFilterBase(FilterAttributesStatic, FilterAttributesDynamic):
             out_df[iname] = self.get_mean(iname, smoother=smoother)
             out_df[iname + '_var'] = self.get_cov(iname, smoother=smoother)
         # dff['Observation'] = self.dfraw['Observation']
-        #dff['Training'] = True
+        # dff['Training'] = True
         # dff.loc[self.dfraw['Observation'].isna(), 'Training'] = False
         out_df['ObjectId'] = self.objectid
-        #out_df.insert(column='Id', value=self.objectid, dtype='int32')
+        # out_df.insert(column='Id', value=self.objectid, dtype='int32')
         out_df = pd.concat([out_df, self.dfraw[mcol].apply(pd.Series)], axis=1)
         out_df[out_df.select_dtypes(np.float64).columns] = out_df.select_dtypes(
             np.float64).astype(np.float32)

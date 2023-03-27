@@ -65,7 +65,6 @@ class UnscentedKalmanFilter(KalmanFilterBase):
 
     def update(self) -> None:
         """UKF update step"""
-
         yhat, Smat, Pxy = self.ut_fun_h.transform(self.m, self.P)
         Hmat = self.fun_Hjac(self.m, self.vec_rbar)
         Jmat = self.fun_Jjac(self.m, self.vec_rbar)

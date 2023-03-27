@@ -308,7 +308,7 @@ class CVM3D_NL_4(NonlinearMotionModel):
         self._F[self._cvm3d.nx:self.nx, self._cvm3d.nx:self.nx] = aug_F
         return self.F @ x
 
-    def func_Q(self, x: ndarray):
+    def func_Q(self, x: ndarray, qbar: ndarray | None = None):
         """Error covariance equation"""
         self._update_base_model(x)
         aug_Q = np.diag([

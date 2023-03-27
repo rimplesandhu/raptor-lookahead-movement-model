@@ -29,8 +29,8 @@ class ObservationModel(StateSpaceModel):
         self._J: ndarray | Callable | None = None  # Error Jacobian matrix
         self._R: ndarray | Callable | None = None  # Error covariance matrix
 
-    def __str__(self):
-        out_str = super().__str__()
+    def __repr__(self):
+        out_str = super().__repr__()
         out_str += f'Obs States({self.ny}): ' + ','.join(self.obs_names) + '\n'
         if self.verbose:
             out_str += f'H:\n {np.array_str(np.array(self.H), precision=3)}\n'
