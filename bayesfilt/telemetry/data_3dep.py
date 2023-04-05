@@ -1,8 +1,12 @@
-""" Base class for 3DEP data annotation """
+""" Class defining the 3DEP data"""
 # pylint: disable=too-many-instance-attributes
 # pylint: disable=too-many-public-methods
 # pylint: disable=invalid-name
 # pylint: disable=logging-fstring-interpolation
+
+
+import sys
+import os
 from typing import Callable
 from pathlib import Path
 from functools import partial
@@ -15,34 +19,32 @@ from matplotlib import patches
 import matplotlib.pyplot as plt
 from numpy import ndarray
 import cartopy.crs as ccrs
-from ssrs.terrain import Terrain
+from ssrs import Terrain
+from ._base_data import BaseData
 
 
-@dataclass
-class Terrain3DEP:
+class Data3DEP(BaseData):
     """Class for downloading 3DEP data"""
-    lonlat_bound: tuple[float, float, float, float]
-    out_dir: str
-    proj_crs: str = 'ESRI:102008'
-    resolution: float = 10
-    terrain: Terrain | None = field(default=None, repr=False)
-    layers: list[str] | None = field(default=None, repr=False)
-    dem: str = field(default='GroundElevation', repr=False)
 
-    def __post_init__(self):
-        """Post initialization function"""
-        self.out_dir = Path(self.out_dir)
-        Path(self.out_dir).mkdir(parents=True, exist_ok=True)
-        self.layers = 'DEM' if self.layers is None else self.layers
+    def __init__(
+        self,
+        lonlat_bounds: tuple[float, float, float, float],
+        resolution: float,
+        **kwargs
+    ):
+        BaseData.__init__(self, **kwargs)
+        self.lonlat_bound = lonlat_bounds
+        self.resolution = resolution
+        self.dem = 'GroundElevation'
         self.terrain = Terrain(
             self.lonlat_bound,
             self.out_dir,
             print_verbose=False
         )
 
-    def download(self):
+    def download(self) -> None:
         """Download 3DEP data"""
-        self.terrain.download(self.layers)
+        self.terrain.download('DEM')
 
     @property
     def ds_geo(self):
@@ -52,10 +54,10 @@ class Terrain3DEP:
         return dsg
 
     @property
-    def ds_proj(self):
+    def ds(self):
         """Returns xarray in proj crs"""
         ds = self.ds_geo.rio.reproject(
-            rio.crs.crs_from_user_input(self.proj_crs),
+            self.proj_crs,
             resolution=self.resolution,
             nodata=np.nan,
             Resampling=rasterio.enums.Resampling.bilinear
@@ -69,13 +71,21 @@ class Terrain3DEP:
         ds = ds.drop_vars(['band', 'spatial_ref'], errors='ignore')
         return ds
 
-    def raiseit(self, outstr: str = "") -> None:
-        """Raise exception with the out string"""
-        raise ValueError(f'{self.__class__.__name__}: {outstr}')
-
-    def printit(self, outstr: str = "") -> None:
-        """Raise exception with the out string"""
-        print(f'{self.__class__.__name__}: {outstr}', flush=True)
+    @classmethod
+    def download_function(cls, ix):
+        with open(os.devnull, 'w', encoding='UTF-8') as f:
+            lonlat_bnd, domain_dir, proj_crs, resolution = ix
+            #print(lonlat_bnd, domain_dir, proj_crs, resolution)
+            #sys.stdout = f
+            dep3 = Data3DEP(
+                lonlat_bounds=lonlat_bnd,
+                resolution=resolution,
+                proj_crs=proj_crs,
+                out_dir=domain_dir
+            )
+            dep3.download()
+            #sys.stdout = sys.__stdout__
+        return dep3
 
 
 def compute_slope_degrees(z_mat: np.ndarray, res: float):
@@ -140,21 +150,3 @@ def compute_aspect_degrees(z_mat: np.ndarray, res: float):
     angle_mod = 90. * np.divide(dz_dx, np.absolute(dz_dx))
     aspect[1:-1, 1:-1] = 180. - angle + angle_mod
     return np.nan_to_num(aspect)
-
-# dem_name = DICT_OF_3DEP_VARS[DEM_3DEP_LAYER]
-# ds_3dep = rio.open_rasterio(filepath)
-# ds_3dep = ds_3dep.to_dataset(name=dem_name).squeeze()
-# ds = ds_3dep.rio.reproject(
-#     rio.crs.crs_from_user_input(proj_crs),
-#     resolution=resolution,
-#     nodata=np.nan,
-#     Resampling=rasterio.enums.Resampling.bilinear
-# )
-# ds[dem_name].attrs = {}
-# slope = calcSlopeDegrees(ds[dem_name].values, res=resolution)
-# aspect = calcAspectDegrees(ds[dem_name].values, res=resolution)
-# ds['GroundSlope'] = (('y', 'x'), slope)
-# ds['GroundAspect'] = (('y', 'x'), aspect)
-# ds['GroundSlope'].values[ds[dem_name].isnull()] = np.nan
-# ds['GroundAspect'].values[ds[dem_name].isnull()] = np.nan
-# ds = ds.drop_vars(['band', 'spatial_ref'], errors='ignore')

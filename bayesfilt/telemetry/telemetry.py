@@ -1,0 +1,442 @@
+""" Base class for telemetry data """
+# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-public-methods
+# pylint: disable=invalid-name
+# pylint: disable=logging-fstring-interpolation
+from pathlib import Path
+from dataclasses import dataclass, field
+import pathos.multiprocessing as mp
+import numpy as np
+import pandas as pd
+import xarray as xr
+import cartopy.crs as ccrs
+from numpy import ndarray
+from .utils import get_bin_edges, get_unique_times
+from ._base_data import BaseData
+from .data_3dep import Data3DEP
+from .data_hrrr import DataHRRR
+
+
+@dataclass(frozen=True)
+class TelemetryAttributeNames:
+    """Dataclass for defining basic attributes of Telemetry class"""
+    lon_col: str = field(default='Longitude', repr=False)
+    lat_col: str = field(default='Latitude', repr=False)
+    x_col: str = field(default='PositionX', repr=False)
+    y_col: str = field(default='PositionY', repr=False)
+    z_col: str = field(default='Altitude', repr=False)
+    t_col: str = field(default='TimeUTC', repr=False)
+    tlocal_col: str = field(default='TimeLocal', repr=False)
+    id_col: str = field(default='AnimalID', repr=False)
+    region_col: str = field(default='Group', repr=False)
+    domain_col: str = field(default='DomainID', repr=False)
+    tdiff_col: str = field(default='TimeDiff', repr=False)
+    xvel_col: str = field(default='VelocityX', repr=False)
+    yvel_col: str = field(default='VelocityY', repr=False)
+    heading_col: str = field(default='Heading', repr=False)
+    hvel_col: str = field(default='VelocityHor', repr=False)
+    zvel_col: str = field(default='VelocityVer', repr=False)
+    falsefix_col: str = field(default='FalseFix', repr=False)
+    trackid_col: str = field(default='TrackID', repr=False)
+    tracktime_col: str = field(default='TrackTimeElapsed', repr=False)
+
+
+class Telemetry(TelemetryAttributeNames, BaseData):
+    """Class for handling telemetry data"""
+
+    def __init__(
+        self,
+        times: ndarray,
+        lons: ndarray,
+        lats: ndarray,
+        zlocs: ndarray | None = None,
+        regions: ndarray | None = None,
+        animalids: ndarray | None = None,
+        times_local: ndarray | None = None,
+        **kwargs
+    ):
+        # initialize
+        BaseData.__init__(self, **kwargs)
+        TelemetryAttributeNames.__init__(self)
+        self.threedep_dir = self.out_dir / 'data_3dep'
+        Path(self.threedep_dir).mkdir(parents=True, exist_ok=True)
+        self.hrrr_dir = self.out_dir / 'data_hrrr'
+        Path(self.hrrr_dir).mkdir(parents=True, exist_ok=True)
+
+        # create dataframe
+        self.df_subdomains: pd.DataFrame = pd.DataFrame()
+        self.df = pd.DataFrame({
+            self.t_col: pd.to_datetime(times, unit='ms'),
+            self.lat_col: np.asarray(lats).astype('float32'),
+            self.lon_col: np.asarray(lons).astype('float32')
+        })
+
+        # compute x and y positions in proj ref system
+        xylocs = self.proj_crs.transform_points(
+            x=np.asarray(lons),
+            y=np.asarray(lats),
+            src_crs=ccrs.CRS(self.geo_crs)
+        )
+        self.df[self.x_col] = np.asarray(xylocs[:, 0]).astype('float64')
+        self.df[self.y_col] = np.asarray(xylocs[:, 1]).astype('float64')
+
+        # compute other horizontal  movement variables
+        tdiff = self.df[self.t_col].diff().dt.total_seconds().bfill().round(5)
+        self.df[self.tdiff_col] = tdiff.astype('float32')
+        xvel = self.df[self.x_col].diff().bfill().divide(tdiff)
+        self.df[self.xvel_col] = xvel.astype('float32')
+        yvel = self.df[self.y_col].diff().bfill().divide(tdiff)
+        self.df[self.yvel_col] = yvel.astype('float32')
+        hvel = np.sqrt(xvel**2 + yvel**2)
+        self.df[self.hvel_col] = hvel.astype('float32')
+        heading = (np.degrees(np.arctan2(xvel, yvel)))
+        self.df[self.heading_col] = heading.astype('float32')
+
+        # vertical movements
+        if zlocs is not None:
+            self.df[self.z_col] = np.asarray(zlocs).astype('float32')
+            zvel = self.df[self.z_col].diff().bfill().divide(tdiff)
+            self.df[self.zvel_col] = zvel.astype('float32')
+
+        # local time
+        if times_local is not None:
+            self.df[self.tlocal_col] = pd.to_datetime(times_local, unit='ms')
+
+        # add other relevant columns
+        self.df[self.region_col] = 'USA' if regions is None else regions
+        self.df[self.region_col] = self.df[self.region_col].astype('category')
+        self.df[self.region_col] = self.df[self.region_col].cat.remove_unused_categories()
+        self.df[self.id_col] = 0 if animalids is None else animalids
+        self.df[self.id_col] = self.df[self.id_col].astype('category')
+        self.df[self.id_col] = self.df[self.id_col].cat.remove_unused_categories()
+        self.df[self.falsefix_col] = False
+
+        # warn about memory usage
+        total_mem = np.around(self.df.memory_usage().sum() / 1024 / 1024, 2)
+        if total_mem > 1024:
+            self.log.warning(f'Memory usage of {total_mem} MB')
+
+    def info(self):
+        """Returns the compresses info of the dataframe containing the data"""
+        self.df.info(verbose=True, memory_usage=True, show_counts=True)
+
+    def _run(self, func, input_list, ncores):
+        """Run parallel simulation"""
+        if ncores <= 1:
+            results = []
+            for ix in self.pbar(input_list, total=len(input_list)):
+                results.append(func(ix))
+        else:
+            with mp.Pool(ncores) as pool:
+                results = list(pool.imap(func, self.pbar(input_list)))
+        return results
+
+    def download_3dep_data(
+        self,
+        resolution: float = 10.,
+        ncores: int = 1
+    ) -> None:
+        """Function for downloading the 3dep data"""
+        self.printit('Downloading 3DEP data..[takes longer the first time]')
+        list_of_inputs = []
+        if self.df_subdomains.empty:
+            self.partition_into_subdomains()
+        for idx, irow in self.df_subdomains.iterrows():
+            lonlat_bnd = irow[['lonmin', 'latmin', 'lonmax', 'latmax']].values
+            domain_dir = Path(self.threedep_dir) / idx
+            list_of_inputs.append(
+                (lonlat_bnd, domain_dir, self.proj_crs.proj4_init, resolution)
+            )
+        results = self._run(Data3DEP.download_function, list_of_inputs, ncores)
+        self.df_subdomains['threedep'] = results
+        self.printit(f'3DEP data saved in {self.threedep_dir}')
+
+    def download_hrrr_data(
+        self,
+        ncores: int = 1,
+        tracks_only: bool = True
+    ) -> None:
+        """Function for downloading the HRRR data"""
+        self.printit('Downloading HRRR data..[takes longer the first time]')
+        tlist = self.df[self.t_col]
+        if tracks_only:
+            tlist = self.df.loc[self.df[self.trackid_col] > 0, self.t_col]
+        unique_times = get_unique_times(tlist)
+        list_of_inputs = []
+        for itime in unique_times:
+            list_of_inputs.append((itime, self.hrrr_dir))
+        _ = self._run(DataHRRR.download_function, list_of_inputs, ncores)
+        self.printit(f'HRRR data saved in {self.hrrr_dir}')
+
+    def annotate_hrrr_data(
+        self,
+        tracks_only: bool = True
+    ):
+        """Returns HRRR data for this day and locations"""
+        track_bool = self.df[self.trackid_col] > 0
+        unique_days = get_unique_times(self.df[self.t_col], time_scale='D')
+        if tracks_only:
+            unique_days = get_unique_times(
+                self.df.loc[track_bool, self.t_col],
+                time_scale='D'
+            )
+        locs_hrrr = ccrs.CRS(DataHRRR.hrrr_crs).transform_points(
+            x=self.df[self.lon_col].values,
+            y=self.df[self.lat_col].values,
+            src_crs=self.geo_crs
+        )
+        list_of_inputs = []
+        for iday in unique_days:
+
+            day_string = np.datetime_as_string(iday, unit='D', timezone='UTC')
+            fpath = self.hrrr_dir / f'{day_string}*.nc'
+            final_bool = self.df[self.t_col].astype('datetime64[D]') == iday
+            if tracks_only:
+                final_bool = final_bool & day_bool
+            xlocs = locs_hrrr[final_bool, 0]
+            ylocs = locs_hrrr[final_bool, 1]
+            tlocs = self.df.loc[final_bool, self.t_col].values
+            inds = np.where(final_bool)[0]
+            list_of_inputs.append((xlocs, ylocs, tlocs, inds, ))
+            out_dict = {}
+            try:
+                hrrr_filepath = self.hrrr_dir / f'{day_string}*.nc'
+                ds = xr.open_mfdataset(hrrr_filepath.as_posix())
+            except Exception as _:
+                self.printit(f'{day_string}:check-this-day')
+            else:
+                #print(f'{day_string}:got-{ds.time.size}-times', flush=True)
+                # print(list(ds.keys()))
+                for _, iname in DataHRRR.variables.items():
+                    ds[iname] = ds[iname].bfill(dim='time')
+                    out_dict[iname] = ds[iname].interp(
+                        time=xr.DataArray(tlocs, dims=['points']),
+                        x=xr.DataArray(xlocs, dims=['points']),
+                        y=xr.DataArray(ylocs, dims=['points']),
+                        method='linear',
+                        kwargs={'fill_value': None},
+                        # kwargs={'fill_value': 'extrapolate'}
+                    ).values.astype('float32')
+                    self.df.loc[day_bool, iname] = np.array(out_dict[iname])
+
+                for _, iname in DataHRRR.variables.items():
+        if iname not in self.df.columns:
+            self.df[iname] = np.nan
+            self.df[iname] = self.df[iname].astype('float32')
+        # return out_dict
+
+    def annotate_3dep_data(
+        self,
+        ncores: int = 1,
+        flag: str = '',
+        dist_away: float = 0.,
+        angle_away: float = 0.,
+        heading_col: str | None = None,
+        tracks_only: bool = False
+    ) -> None:
+        """Annotate 3dep data"""
+        def _annotate_func(ituple):
+            xlocs, ylocs, _, dep3_obj = ituple
+            xlocs_xr = xr.DataArray(xlocs, dims=['points'])
+            ylocs_xr = xr.DataArray(ylocs, dims=['points'])
+            return dep3_obj.ds.interp(
+                x=xlocs_xr,
+                y=ylocs_xr,
+                method='linear',
+                kwargs={'fill_value': None},
+            )
+        #self.printit('Annotating data from 3DEP..')
+        if self.df_subdomains.empty:
+            self.partition_into_subdomains()
+            self.download_3dep_data()
+        h_col = self.heading_col if heading_col is None else heading_col
+        self.check_validity_of_columns(h_col)
+        track_bool = self.df[self.trackid_col] > 0
+        list_of_inputs = []
+        for _, irow in self.df_subdomains.iterrows():
+            ibnd = irow[['lonmin', 'latmin', 'lonmax', 'latmax']].values
+            lon_bool = self.df[self.lon_col].between(ibnd[0], ibnd[2])
+            lat_bool = self.df[self.lat_col].between(ibnd[1], ibnd[3])
+            final_bool = lon_bool & lat_bool
+            if tracks_only:
+                final_bool = final_bool & track_bool
+            xlocs = self.df.loc[final_bool, self.x_col].values
+            ylocs = self.df.loc[final_bool, self.y_col].values
+            hlocs = self.df.loc[final_bool, h_col].values
+            xlocs += dist_away * np.sin(np.radians(angle_away + hlocs))
+            ylocs += dist_away * np.cos(np.radians(angle_away + hlocs))
+            inds = np.where(final_bool)[0]
+            if len(inds) > 0:
+                list_of_inputs.append((xlocs, ylocs, inds, irow['threedep']))
+        results = self._run(_annotate_func, list_of_inputs, ncores)
+        ids = list_of_inputs[0][3].ds
+        for iname in list(ids.keys()):
+            jname = f'{iname}{flag}'
+            if jname not in list(self.df.columns):
+                self.df[jname] = np.nan
+                self.df[jname] = self.df[jname].astype('float32')
+            for ids, ituple in zip(results, list_of_inputs):
+                _, _, inds, _ = ituple
+                self.df.loc[inds, jname] = ids[iname].values
+
+    def sort_df(
+        self,
+        by: list[str] | None = None
+    ) -> None:
+        """Sorts dataframe according to given columns, in order, in place"""
+        by = [self.region_col, self.id_col, self.t_col] if by is None else by
+        istr = ', '.join(by)
+        self.printit(f'Sorting based on {istr}; in that order')
+        self.check_validity_of_columns(by)
+        self.df.set_index(by, inplace=True, drop=False)
+        self.df.sort_index(inplace=True)
+        # self.df.sort_index(axis=1, inplace=True)
+        self.df.reset_index(inplace=True, drop=True)
+
+    def annotate_track_info(
+        self,
+        min_time_interval: float,
+        min_time_duration: float,
+        min_num_points: int,
+        time_col: str | None = None
+    ) -> None:
+        """Extract tracks from telemetry data"""
+        time_col = self.t_col if time_col is None else time_col
+        self.sort_df([self.region_col, self.id_col, time_col])
+        first_of_day = (
+            (self.df[time_col].dt.date != self.df[time_col].dt.date.shift()) |
+            (self.df[self.id_col].astype('int32').diff() != 0)
+        )
+        first_of_track = (
+            (self.df[self.tdiff_col] >= min_time_interval) |
+            (first_of_day) |
+            self.df[self.falsefix_col]
+        )
+        first_of_track = (
+            first_of_track |
+            first_of_track.shift(1) |
+            first_of_track.shift(-1)
+        )
+        self.df[self.trackid_col] = first_of_track.cumsum()
+        grouped = self.df.groupby(self.trackid_col)[self.tdiff_col]
+        track_bool = (
+            (grouped.transform('sum') < min_time_duration) |
+            (grouped.transform('count') < min_num_points)
+        )
+        self.df.loc[track_bool, self.trackid_col] = 0
+        track_cat = self.df[self.trackid_col].astype('category')
+        self.df[self.trackid_col] = track_cat.cat.codes
+        grouped = self.df.groupby(self.trackid_col)[self.tdiff_col]
+        self.df[self.tracktime_col] = grouped.transform('cumsum')
+        self.df.loc[self.df[self.trackid_col]
+                    == 0, self.tracktime_col] = np.nan
+        # print the ingo
+        ntracks = self.df.groupby(self.region_col)[self.trackid_col].nunique()
+        istr = ', '.join(f'{k}={v}' for k, v in ntracks.to_dict().items())
+        self.printit(f'Number of tracks: {istr}')
+
+    def partition_into_subdomains(
+        self,
+        x_width: float = 20 * 1000,
+        y_width: float = 20 * 1000,
+        pad: float = 1000.,
+        by: str | None = None
+    ) -> None:
+        """Parition spatial data into rectangular chunks"""
+        by = self.region_col if by is None else by
+        x_col = self.x_col
+        y_col = self.y_col
+        self.check_validity_of_columns([x_col, y_col])
+        self.df[self.domain_col] = -1
+        self.df_subdomains = {}
+        for iregion in self.df[self.region_col].unique():
+            rbool = self.df[self.region_col] == iregion
+            x_edges = get_bin_edges(self.df.loc[rbool, x_col], x_width, pad)
+            y_edges = get_bin_edges(self.df.loc[rbool, y_col], y_width, pad)
+            x_bins = np.digitize(self.df.loc[rbool, x_col], x_edges)
+            y_bins = np.digitize(self.df.loc[rbool, y_col], y_edges)
+            uniq, domain_idx = np.unique(
+                np.vstack((x_bins, y_bins)),
+                axis=1,
+                return_inverse=True
+            )
+            domain_id = [f'{iregion}{ix}' for ix in domain_idx]
+            self.df.loc[rbool, self.domain_col] = domain_id
+            for idomain in range(domain_idx.max()):
+                domain_id = f'{iregion}{idomain}'
+                self.df_subdomains[domain_id] = [
+                    x_edges[uniq[0, idomain] - 1] - pad,
+                    x_edges[uniq[0, idomain]] + pad,
+                    y_edges[uniq[1, idomain] - 1] - pad,
+                    y_edges[uniq[1, idomain]] + pad,
+                ]
+            num_domains = len(x_edges) * len(y_edges)
+            istr = f'{iregion} = {uniq.shape[1]}/{num_domains}'
+            self.printit(f'{istr} domains contain data')
+        self.df_subdomains = pd.DataFrame.from_dict(
+            self.df_subdomains,
+            orient='index',
+            columns=['xmin', 'xmax', 'ymin', 'ymax']
+        )
+        geo_corners = ccrs.CRS(self.geo_crs).transform_points(
+            x=self.df_subdomains[['xmin', 'xmin', 'xmax', 'xmax']].values,
+            y=self.df_subdomains[['ymin', 'ymax', 'ymin', 'ymax']].values,
+            src_crs=ccrs.CRS(self.proj_crs)
+        )
+        self.df_subdomains['lonmin'] = np.amin(geo_corners, axis=1)[:, 0]
+        self.df_subdomains['lonmax'] = np.amax(geo_corners, axis=1)[:, 0]
+        self.df_subdomains['latmin'] = np.amin(geo_corners, axis=1)[:, 1]
+        self.df_subdomains['latmax'] = np.amax(geo_corners, axis=1)[:, 1]
+        self.df_subdomains.index.name = self.domain_col
+        self.df[self.domain_col] = self.df[self.domain_col].astype('category')
+
+    def ignore_data_based_on_vertical_speed(
+        self,
+        max_change: float
+    ) -> None:
+        """False fix points based on vertical speed"""
+        assert self.zvel_col in self.df.columns, f'Vertical data not loaded!'
+        vspeed = self.df[self.zvel_col]
+        vchange = vspeed - np.maximum(vspeed.shift(1), vspeed.shift(-1))
+        cond1 = (vspeed >= 0.) & (vchange >= max_change)
+        vchange = np.minimum(vspeed.shift(1), vspeed.shift(-1)) - vspeed
+        cond2 = (vspeed <= 0.) & (vchange >= max_change)
+        cond_both = (cond1) | (cond2)
+        self.df[self.falsefix_col] = self.df[self.falsefix_col] | cond_both
+        self.printit(f'Found {cond_both.sum()} bad points - vpseed condition')
+
+    def ignore_data_based_on_horizontal_speed(
+        self,
+        min_speed: float,
+        min_npoints: int = 5
+    ) -> None:
+        """Perched points"""
+        hspeed = self.df[self.hvel_col]
+        shift_periods = np.arange(-min_npoints, min_npoints + 1)
+        hspeed_bool = (hspeed <= min_speed)
+        for ishift in shift_periods:
+            hspeed_bool = hspeed_bool & (hspeed.shift(
+                ishift, fill_value=0.) <= min_speed)
+        cond_bool = hspeed_bool.copy()
+        for ishift in shift_periods:
+            cond_bool = cond_bool | hspeed_bool.shift(ishift, fill_value=False)
+        self.df[self.falsefix_col] = self.df[self.falsefix_col] | cond_bool
+        self.printit(f'Found {cond_bool.sum()} bad points - hspeed condition')
+
+    def check_validity_of_columns(self, cols):
+        """check if these columns exist in the dataframe"""
+        for icol in np.atleast_1d(cols):
+            if icol not in list(self.df.columns):
+                self.raiseit(f'{icol} not found in {list(self.df.columns)}')
+
+    def df_track(self, track_id: int):
+        """Returns track df"""
+        return self.df[self.df[self.trackid_col] == track_id]
+
+    @ property
+    def track_ids(self):
+        """return a list of tracks"""
+        out_list = []
+        if self.trackid_col in self.df.columns:
+            out_list = list(self.df[self.trackid_col].unique())
+        return out_list
