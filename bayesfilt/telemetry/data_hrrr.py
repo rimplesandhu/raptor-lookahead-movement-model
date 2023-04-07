@@ -24,10 +24,9 @@ from ._base_data import BaseData
 
 class DataHRRR(BaseData):
     """Class for downloading HRRR data"""
-    hrrr_crs = '+ellps=WGS84 +a=6371229.0 +b=6371229.0 +proj=lcc \
-            +lon_0=262.5 +lat_0=38.5 +x_0=0.0 +y_0=0.0 +lat_1=38.5 \
+    hrrr_proj4 = '+ellps=WGS84 +a=6371229.0 +b=6371229.0 +proj=lcc +lon_0=262.5 +lat_0=38.5 +x_0=0.0 +y_0=0.0 +lat_1=38.5 \
                 +lat_2=38.5 +no_defs'
-
+    hrrr_crs = hrrr_proj4
     variables = {
         ':UGRD:10 m': 'WindSpeedU_10m',
         ':VGRD:10 m': 'WindSpeedV_10m',
@@ -79,7 +78,7 @@ class DataHRRR(BaseData):
     def download_this_time(self, time_utc):
         """Function for downloading data at the given time"""
         success = True
-        time_str = np.datetime_as_string(time_utc, unit='h', timezone='UTC')
+        #time_str = np.datetime_as_string(time_utc, unit='h', timezone='UTC')
         #self.printit(f'Trying {time_str}..')
         try:
             hobj = HRRR(time_utc)
@@ -90,7 +89,7 @@ class DataHRRR(BaseData):
             ids = ids.rename({list(ids.keys())[0]: ivarname})
         except Exception as _:
             success = False
-            self.printit(f'{time_str}: aws-issue')
+            #self.printit(f'{time_str}: aws or ssrs.HRRR issue')
         else:
             for ivar, iname in self.variables.items():
                 try:
@@ -102,9 +101,8 @@ class DataHRRR(BaseData):
                     ids[iname].attrs = tds[list(tds.keys())[0]].attrs
                 except Exception as _:
                     success = False
-                    self.printit(f' {time_str}-{iname}-problem!')
-                    #idata = np.full((ids['y'].size, ids['x'].size), np.nan)
-                    #ids[iname] = (('y', 'x'), idata)
+                    #self.printit(f' {time_str}-{iname}-problem!')
+            ids['time'] = self.time_utc
             ids = ids.expand_dims(dim='time')
             ids.to_netcdf(self.filepath)
         return success
@@ -124,6 +122,7 @@ class DataHRRR(BaseData):
 
     @classmethod
     def download_function(cls, ix):
+        """Download Function"""
         with open(os.devnull, 'w', encoding='UTF-8') as f:
             time_utc, out_dir = ix
             #print(lonlat_bnd, domain_dir, proj_crs, resolution)
@@ -135,3 +134,30 @@ class DataHRRR(BaseData):
             hobj.download()
             #sys.stdout = sys.__stdout__
         return hobj
+
+    @classmethod
+    def annotate_function(cls, ituple):
+        """Annotate function"""
+        xlocs, ylocs, tlocs, _, fpath = ituple
+        out_dict = {}
+        try:
+            ds = xr.open_mfdataset(
+                fpath.as_posix(),
+                combine='nested',
+                concat_dim=('time')
+            )
+        except Exception as _:
+            print(f'{fpath.as_posix()}:check-this-day')
+        else:
+            #print(f'{day_string}:got-{ds.time.size}-times', flush=True)
+            for _, iname in DataHRRR.variables.items():
+                #ds[iname] = ds[iname].interpolate_na(dim='time')
+                out_dict[iname] = ds[iname].interp(
+                    time=xr.DataArray(tlocs, dims=['points']),
+                    x=xr.DataArray(xlocs, dims=['points']),
+                    y=xr.DataArray(ylocs, dims=['points']),
+                    method='linear',
+                    kwargs={'fill_value': None},
+                    # kwargs={'fill_value': 'extrapolate'}
+                ).values.astype('float32')
+        return out_dict

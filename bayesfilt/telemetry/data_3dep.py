@@ -13,6 +13,7 @@ from functools import partial
 from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
+import xarray as xr
 import rioxarray as rio
 import rasterio
 from matplotlib import patches
@@ -86,6 +87,18 @@ class Data3DEP(BaseData):
             dep3.download()
             #sys.stdout = sys.__stdout__
         return dep3
+
+    @classmethod
+    def annotate_function(cls, ituple):
+        xlocs, ylocs, _, dep3_obj = ituple
+        xlocs_xr = xr.DataArray(xlocs, dims=['points'])
+        ylocs_xr = xr.DataArray(ylocs, dims=['points'])
+        return dep3_obj.ds.interp(
+            x=xlocs_xr,
+            y=ylocs_xr,
+            method='linear',
+            kwargs={'fill_value': None},
+        )
 
 
 def compute_slope_degrees(z_mat: np.ndarray, res: float):

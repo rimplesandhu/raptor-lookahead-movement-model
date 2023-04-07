@@ -67,8 +67,8 @@ class Telemetry(TelemetryAttributeNames, BaseData):
         self.df_subdomains: pd.DataFrame = pd.DataFrame()
         self.df = pd.DataFrame({
             self.t_col: pd.to_datetime(times, unit='ms'),
-            self.lat_col: np.asarray(lats).astype('float32'),
-            self.lon_col: np.asarray(lons).astype('float32')
+            self.lat_col: np.asarray(lats),
+            self.lon_col: np.asarray(lons)
         })
 
         # compute x and y positions in proj ref system
@@ -170,9 +170,11 @@ class Telemetry(TelemetryAttributeNames, BaseData):
 
     def annotate_hrrr_data(
         self,
+        ncores: int = 1,
         tracks_only: bool = True
     ):
         """Returns HRRR data for this day and locations"""
+        self.printit(f'Annotating HRRR data using {ncores} cores..')
         track_bool = self.df[self.trackid_col] > 0
         unique_days = get_unique_times(self.df[self.t_col], time_scale='D')
         if tracks_only:
@@ -183,47 +185,27 @@ class Telemetry(TelemetryAttributeNames, BaseData):
         locs_hrrr = ccrs.CRS(DataHRRR.hrrr_crs).transform_points(
             x=self.df[self.lon_col].values,
             y=self.df[self.lat_col].values,
-            src_crs=self.geo_crs
+            src_crs=ccrs.CRS(self.geo_crs)
         )
         list_of_inputs = []
         for iday in unique_days:
-
             day_string = np.datetime_as_string(iday, unit='D', timezone='UTC')
             fpath = self.hrrr_dir / f'{day_string}*.nc'
             final_bool = self.df[self.t_col].astype('datetime64[D]') == iday
             if tracks_only:
-                final_bool = final_bool & day_bool
+                final_bool = final_bool & track_bool
             xlocs = locs_hrrr[final_bool, 0]
             ylocs = locs_hrrr[final_bool, 1]
             tlocs = self.df.loc[final_bool, self.t_col].values
             inds = np.where(final_bool)[0]
-            list_of_inputs.append((xlocs, ylocs, tlocs, inds, ))
-            out_dict = {}
-            try:
-                hrrr_filepath = self.hrrr_dir / f'{day_string}*.nc'
-                ds = xr.open_mfdataset(hrrr_filepath.as_posix())
-            except Exception as _:
-                self.printit(f'{day_string}:check-this-day')
-            else:
-                #print(f'{day_string}:got-{ds.time.size}-times', flush=True)
-                # print(list(ds.keys()))
-                for _, iname in DataHRRR.variables.items():
-                    ds[iname] = ds[iname].bfill(dim='time')
-                    out_dict[iname] = ds[iname].interp(
-                        time=xr.DataArray(tlocs, dims=['points']),
-                        x=xr.DataArray(xlocs, dims=['points']),
-                        y=xr.DataArray(ylocs, dims=['points']),
-                        method='linear',
-                        kwargs={'fill_value': None},
-                        # kwargs={'fill_value': 'extrapolate'}
-                    ).values.astype('float32')
-                    self.df.loc[day_bool, iname] = np.array(out_dict[iname])
-
-                for _, iname in DataHRRR.variables.items():
-        if iname not in self.df.columns:
-            self.df[iname] = np.nan
-            self.df[iname] = self.df[iname].astype('float32')
-        # return out_dict
+            list_of_inputs.append((xlocs, ylocs, tlocs, inds, fpath))
+        results = self._run(DataHRRR.annotate_function, list_of_inputs, ncores)
+        for _, iname in DataHRRR.variables.items():
+            self._add_new_column(iname)
+        for iresult, ituple in zip(results, list_of_inputs):
+            _, _, _, inds, _ = ituple
+            for k, v in iresult.items():
+                self.df.loc[inds, k] = np.array(v)
 
     def annotate_3dep_data(
         self,
@@ -235,17 +217,7 @@ class Telemetry(TelemetryAttributeNames, BaseData):
         tracks_only: bool = False
     ) -> None:
         """Annotate 3dep data"""
-        def _annotate_func(ituple):
-            xlocs, ylocs, _, dep3_obj = ituple
-            xlocs_xr = xr.DataArray(xlocs, dims=['points'])
-            ylocs_xr = xr.DataArray(ylocs, dims=['points'])
-            return dep3_obj.ds.interp(
-                x=xlocs_xr,
-                y=ylocs_xr,
-                method='linear',
-                kwargs={'fill_value': None},
-            )
-        #self.printit('Annotating data from 3DEP..')
+        self.printit(f'Annotating 3DEP data using {ncores} cores..')
         if self.df_subdomains.empty:
             self.partition_into_subdomains()
             self.download_3dep_data()
@@ -268,16 +240,21 @@ class Telemetry(TelemetryAttributeNames, BaseData):
             inds = np.where(final_bool)[0]
             if len(inds) > 0:
                 list_of_inputs.append((xlocs, ylocs, inds, irow['threedep']))
-        results = self._run(_annotate_func, list_of_inputs, ncores)
+        results = self._run(Data3DEP.annotate_function, list_of_inputs, ncores)
         ids = list_of_inputs[0][3].ds
         for iname in list(ids.keys()):
             jname = f'{iname}{flag}'
-            if jname not in list(self.df.columns):
-                self.df[jname] = np.nan
-                self.df[jname] = self.df[jname].astype('float32')
+            self.printit(f'Annotating {jname} to the dataframe..')
+            self._add_new_column(jname)
             for ids, ituple in zip(results, list_of_inputs):
                 _, _, inds, _ = ituple
                 self.df.loc[inds, jname] = ids[iname].values
+
+    def _add_new_column(self, iname):
+        """Add new column to the dataframe and fill it with nan"""
+        if iname not in list(self.df.columns):
+            self.df[iname] = np.nan
+            self.df[iname] = self.df[iname].astype('float32')
 
     def sort_df(
         self,
@@ -372,7 +349,7 @@ class Telemetry(TelemetryAttributeNames, BaseData):
                 ]
             num_domains = len(x_edges) * len(y_edges)
             istr = f'{iregion} = {uniq.shape[1]}/{num_domains}'
-            self.printit(f'{istr} domains contain data')
+            self.printit(f'Region {istr} domains contain data')
         self.df_subdomains = pd.DataFrame.from_dict(
             self.df_subdomains,
             orient='index',
