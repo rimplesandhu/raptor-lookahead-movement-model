@@ -4,6 +4,8 @@
 # pylint: disable=invalid-name
 # pylint: disable=logging-fstring-interpolation
 from pathlib import Path
+from typing import Callable
+from functools import partial
 from dataclasses import dataclass, field
 import pathos.multiprocessing as mp
 import numpy as np
@@ -12,7 +14,7 @@ import xarray as xr
 import cartopy.crs as ccrs
 from numpy import ndarray
 from .utils import get_bin_edges, get_unique_times
-from ._base_data import BaseData
+from ._base_data import BaseGeoData
 from .data_3dep import Data3DEP
 from .data_hrrr import DataHRRR
 
@@ -41,7 +43,7 @@ class TelemetryAttributeNames:
     tracktime_col: str = field(default='TrackTimeElapsed', repr=False)
 
 
-class Telemetry(TelemetryAttributeNames, BaseData):
+class Telemetry(TelemetryAttributeNames, BaseGeoData):
     """Class for handling telemetry data"""
 
     def __init__(
@@ -56,7 +58,7 @@ class Telemetry(TelemetryAttributeNames, BaseData):
         **kwargs
     ):
         # initialize
-        BaseData.__init__(self, **kwargs)
+        BaseGeoData.__init__(self, **kwargs)
         TelemetryAttributeNames.__init__(self)
         self.threedep_dir = self.out_dir / 'data_3dep'
         Path(self.threedep_dir).mkdir(parents=True, exist_ok=True)
@@ -134,7 +136,8 @@ class Telemetry(TelemetryAttributeNames, BaseData):
     def download_3dep_data(
         self,
         resolution: float = 10.,
-        ncores: int = 1
+        ncores: int = mp.cpu_count(),
+        verbose: bool = False
     ) -> None:
         """Function for downloading the 3dep data"""
         self.printit('Downloading 3DEP data..[takes longer the first time]')
@@ -145,15 +148,20 @@ class Telemetry(TelemetryAttributeNames, BaseData):
             lonlat_bnd = irow[['lonmin', 'latmin', 'lonmax', 'latmax']].values
             domain_dir = Path(self.threedep_dir) / idx
             list_of_inputs.append(
-                (lonlat_bnd, domain_dir, self.proj_crs.proj4_init, resolution)
+                (lonlat_bnd, domain_dir,
+                 self.proj_crs.proj4_init, resolution, verbose)
             )
-        results = self._run(Data3DEP.download_function, list_of_inputs, ncores)
+        results = self._run(
+            Data3DEP.download_function,
+            list_of_inputs,
+            ncores
+        )
         self.df_subdomains['threedep'] = results
         self.printit(f'3DEP data saved in {self.threedep_dir}')
 
     def download_hrrr_data(
         self,
-        ncores: int = 1,
+        ncores: int = mp.cpu_count(),
         tracks_only: bool = True
     ) -> None:
         """Function for downloading the HRRR data"""
@@ -170,16 +178,16 @@ class Telemetry(TelemetryAttributeNames, BaseData):
 
     def annotate_hrrr_data(
         self,
-        ncores: int = 1,
+        ncores: int = mp.cpu_count(),
         tracks_only: bool = True
     ):
         """Returns HRRR data for this day and locations"""
+        self.download_hrrr_data()
         self.printit(f'Annotating HRRR data using {ncores} cores..')
-        track_bool = self.df[self.trackid_col] > 0
         unique_days = get_unique_times(self.df[self.t_col], time_scale='D')
         if tracks_only:
             unique_days = get_unique_times(
-                self.df.loc[track_bool, self.t_col],
+                self.df.loc[self.df[self.trackid_col] > 0, self.t_col],
                 time_scale='D'
             )
         locs_hrrr = ccrs.CRS(DataHRRR.hrrr_crs).transform_points(
@@ -190,37 +198,38 @@ class Telemetry(TelemetryAttributeNames, BaseData):
         list_of_inputs = []
         for iday in unique_days:
             day_string = np.datetime_as_string(iday, unit='D', timezone='UTC')
-            fpath = self.hrrr_dir / f'{day_string}*.nc'
             final_bool = self.df[self.t_col].astype('datetime64[D]') == iday
             if tracks_only:
-                final_bool = final_bool & track_bool
-            xlocs = locs_hrrr[final_bool, 0]
-            ylocs = locs_hrrr[final_bool, 1]
-            tlocs = self.df.loc[final_bool, self.t_col].values
-            inds = np.where(final_bool)[0]
-            list_of_inputs.append((xlocs, ylocs, tlocs, inds, fpath))
+                final_bool = (final_bool) & (self.df[self.trackid_col] > 0)
+            list_of_inputs.append((
+                locs_hrrr[final_bool, 0],
+                locs_hrrr[final_bool, 1],
+                self.df.loc[final_bool, self.t_col].values,
+                np.where(final_bool)[0],
+                self.hrrr_dir / f'{day_string}*.nc'
+            ))
         results = self._run(DataHRRR.annotate_function, list_of_inputs, ncores)
         for _, iname in DataHRRR.variables.items():
             self._add_new_column(iname)
         for iresult, ituple in zip(results, list_of_inputs):
-            _, _, _, inds, _ = ituple
             for k, v in iresult.items():
-                self.df.loc[inds, k] = np.array(v)
+                self.df.loc[ituple[3], k] = np.array(v)
 
     def annotate_3dep_data(
         self,
-        ncores: int = 1,
+        ncores: int = mp.cpu_count(),
         flag: str = '',
         dist_away: float = 0.,
         angle_away: float = 0.,
         heading_col: str | None = None,
-        tracks_only: bool = False
+        tracks_only: bool = False,
+        filter_func: Callable | None = None
     ) -> None:
         """Annotate 3dep data"""
         self.printit(f'Annotating 3DEP data using {ncores} cores..')
         if self.df_subdomains.empty:
             self.partition_into_subdomains()
-            self.download_3dep_data()
+            self.download_3dep_data(verbose=False)
         h_col = self.heading_col if heading_col is None else heading_col
         self.check_validity_of_columns(h_col)
         track_bool = self.df[self.trackid_col] > 0
@@ -229,9 +238,9 @@ class Telemetry(TelemetryAttributeNames, BaseData):
             ibnd = irow[['lonmin', 'latmin', 'lonmax', 'latmax']].values
             lon_bool = self.df[self.lon_col].between(ibnd[0], ibnd[2])
             lat_bool = self.df[self.lat_col].between(ibnd[1], ibnd[3])
-            final_bool = lon_bool & lat_bool
+            final_bool = (lon_bool) & (lat_bool)
             if tracks_only:
-                final_bool = final_bool & track_bool
+                final_bool = (final_bool) & (track_bool)
             xlocs = self.df.loc[final_bool, self.x_col].values
             ylocs = self.df.loc[final_bool, self.y_col].values
             hlocs = self.df.loc[final_bool, h_col].values
@@ -240,11 +249,11 @@ class Telemetry(TelemetryAttributeNames, BaseData):
             inds = np.where(final_bool)[0]
             if len(inds) > 0:
                 list_of_inputs.append((xlocs, ylocs, inds, irow['threedep']))
-        results = self._run(Data3DEP.annotate_function, list_of_inputs, ncores)
-        ids = list_of_inputs[0][3].ds
-        for iname in list(ids.keys()):
+        fn = partial(Data3DEP.annotate_function, filter_func=filter_func)
+        results = self._run(fn, list_of_inputs, ncores)
+        for iname in list(results[0].keys()):
             jname = f'{iname}{flag}'
-            self.printit(f'Annotating {jname} to the dataframe..')
+            #self.printit(f'Annotating {jname} to the dataframe..')
             self._add_new_column(jname)
             for ids, ituple in zip(results, list_of_inputs):
                 _, _, inds, _ = ituple
@@ -300,14 +309,13 @@ class Telemetry(TelemetryAttributeNames, BaseData):
             (grouped.transform('sum') < min_time_duration) |
             (grouped.transform('count') < min_num_points)
         )
-        self.df.loc[track_bool, self.trackid_col] = 0
+        self.df.loc[track_bool, self.trackid_col] = -1
         track_cat = self.df[self.trackid_col].astype('category')
         self.df[self.trackid_col] = track_cat.cat.codes
         grouped = self.df.groupby(self.trackid_col)[self.tdiff_col]
         self.df[self.tracktime_col] = grouped.transform('cumsum')
         self.df.loc[self.df[self.trackid_col]
                     == 0, self.tracktime_col] = np.nan
-        # print the ingo
         ntracks = self.df.groupby(self.region_col)[self.trackid_col].nunique()
         istr = ', '.join(f'{k}={v}' for k, v in ntracks.to_dict().items())
         self.printit(f'Number of tracks: {istr}')

@@ -72,6 +72,12 @@ def get_unique_times(
     unique_times = unique_times.astype(f'datetime64[{time_scale}]')
     return unique_times
 
+
+def get_wind_direction(uspeed, vspeed):
+    """return wind speed and direction"""
+    dirn = np.degrees(np.arctan2(uspeed, vspeed))
+    return dirn - np.sign(dirn) * 180.
+
 # def plot_usa_map(ax, proj_crs):
 #     """Plots usa map in a given projection system"""
 #     usa = gpd.read_file(os.path.join(

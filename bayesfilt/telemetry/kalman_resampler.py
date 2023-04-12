@@ -14,10 +14,11 @@ from bayesfilt.filters import KalmanFilter
 from bayesfilt.models import ConstantAcceleration1D, ConstantVelocity1D
 from bayesfilt.models import LinearObservationModel
 from .utils import get_bin_edges
+from ._base_data import BaseClass
 
 
 @dataclass
-class ResamplerBase:
+class ResamplerBase(BaseClass):
     """Base class for defining a resampler"""
     mm = None
     om = None
@@ -28,14 +29,6 @@ class ResamplerBase:
         out_str += self.om.__str__() + '\n'
         out_str += self.kf.__str__() + '\n'
         return out_str
-
-    def printit(self, outstr: str = "", **kwargs) -> None:
-        """Print statement"""
-        print(f'{self.__class__.__name__}: {outstr}', flush=True, **kwargs)
-
-    def raiseit(self, outstr: str = "") -> None:
-        """Raise exception with the out string"""
-        raise ValueError(f'{self.__class__.__name__}: {outstr}')
 
 
 class ConstantVelocityResampler(ResamplerBase):

@@ -19,10 +19,10 @@ import matplotlib.pyplot as plt
 from numpy import ndarray, datetime64
 import cartopy.crs as ccrs
 from ssrs import HRRR
-from ._base_data import BaseData
+from ._base_data import BaseGeoData
 
 
-class DataHRRR(BaseData):
+class DataHRRR(BaseGeoData):
     """Class for downloading HRRR data"""
     hrrr_proj4 = '+ellps=WGS84 +a=6371229.0 +b=6371229.0 +proj=lcc +lon_0=262.5 +lat_0=38.5 +x_0=0.0 +y_0=0.0 +lat_1=38.5 \
                 +lat_2=38.5 +no_defs'
@@ -40,7 +40,7 @@ class DataHRRR(BaseData):
         time_utc: datetime64,
         **kwargs
     ):
-        BaseData.__init__(self, proj_crs=self.hrrr_crs, **kwargs,)
+        BaseGeoData.__init__(self, proj_crs=self.hrrr_crs, **kwargs,)
         #self.proj_crs = self.hrrr_crs
         self.time_utc = np.datetime64(time_utc)
         self.time_str = np.datetime_as_string(self.time_utc, unit='h',
@@ -113,7 +113,7 @@ class DataHRRR(BaseData):
             ids = xr.open_dataset(self.filepath, engine='scipy')
             if not set(self.variables.values()).issubset(set(ids.keys())):
                 raise FileNotFoundError
-        except FileNotFoundError as _:
+        except Exception as _:
             success = False
             itr = iter(sorted(np.arange(-12, 12), key=abs))
             while not success:

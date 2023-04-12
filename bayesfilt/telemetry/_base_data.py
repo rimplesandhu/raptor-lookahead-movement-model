@@ -12,15 +12,15 @@ from tqdm import tqdm
 import cartopy.crs as ccrs
 
 
-class BaseData:
-    """Base class for defining varous dataclasses"""
+class BaseClass:
+    """Base class for telemetry module"""
 
     def __init__(
         self,
-        proj_crs: str | None = None,
         out_dir: str | None = None,
         log_level: int | None = None
     ):
+
         # logging
         logging.basicConfig(
             level=log_level,
@@ -29,17 +29,6 @@ class BaseData:
         self.log = logging.getLogger(self.__class__.__name__)
         log_level = 40 if log_level is None else log_level
         self.log.setLevel(log_level)
-
-        # crs management
-        if proj_crs is not None:
-            if isinstance(proj_crs, str):
-                self.proj_crs = proj_crs
-            elif isinstance(proj_crs, ccrs.CRS):
-                self.proj_crs = proj_crs
-            else:
-                self.raiseit('Invalid CRS input!')
-        else:
-            self.proj_crs = self.albersna_crs
 
         # directories
         self.out_dir = Path(os.path.join(os.getcwd(), 'output'))
@@ -53,6 +42,34 @@ class BaseData:
         return partial(tqdm, desc=self.__class__.__name__,
                        position=0, leave=True, file=sys.stdout)
 
+    def raiseit(self, outstr: str = "", err=ValueError) -> None:
+        """Raise exception with the out string"""
+        raise err(f'{self.__class__.__name__}: {outstr}')
+
+    def printit(self, outstr: str = "") -> None:
+        """Raise exception with the out string"""
+        print(f'{self.__class__.__name__}: {outstr}', flush=True)
+
+
+class BaseGeoData(BaseClass):
+    """Base class for defining varous dataclasses"""
+
+    def __init__(
+        self,
+        proj_crs: str | None = None,
+        **kwargs
+    ):
+        BaseClass.__init__(self, **kwargs)
+        if proj_crs is not None:
+            if isinstance(proj_crs, str):
+                self.proj_crs = proj_crs
+            elif isinstance(proj_crs, ccrs.CRS):
+                self.proj_crs = proj_crs
+            else:
+                self.raiseit('Invalid CRS input!')
+        else:
+            self.proj_crs = self.albersna_crs
+
     @property
     def albersna_crs(self):
         """Albers equal area conic projection"""
@@ -62,11 +79,3 @@ class BaseData:
     def geo_crs(self):
         """Returns geographical ref system"""
         return ccrs.CRS('EPSG:4326')
-
-    def raiseit(self, outstr: str = "") -> None:
-        """Raise exception with the out string"""
-        raise ValueError(f'{self.__class__.__name__}: {outstr}')
-
-    def printit(self, outstr: str = "") -> None:
-        """Raise exception with the out string"""
-        print(f'{self.__class__.__name__}: {outstr}', flush=True)

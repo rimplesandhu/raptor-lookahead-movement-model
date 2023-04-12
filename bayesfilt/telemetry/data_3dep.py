@@ -21,26 +21,27 @@ import matplotlib.pyplot as plt
 from numpy import ndarray
 import cartopy.crs as ccrs
 from ssrs import Terrain
-from ._base_data import BaseData
+from ._base_data import BaseGeoData
 
 
-class Data3DEP(BaseData):
+class Data3DEP(BaseGeoData):
     """Class for downloading 3DEP data"""
 
     def __init__(
         self,
         lonlat_bounds: tuple[float, float, float, float],
         resolution: float,
+        verbose: bool = True,
         **kwargs
     ):
-        BaseData.__init__(self, **kwargs)
+        BaseGeoData.__init__(self, **kwargs)
         self.lonlat_bound = lonlat_bounds
         self.resolution = resolution
         self.dem = 'GroundElevation'
         self.terrain = Terrain(
             self.lonlat_bound,
             self.out_dir,
-            print_verbose=False
+            verbose=verbose
         )
 
     def download(self) -> None:
@@ -56,6 +57,13 @@ class Data3DEP(BaseData):
 
     @property
     def ds(self):
+        """Return xarray dataset in projected crs"""
+        return self.get_ds()
+
+    def get_ds(
+        self,
+        filter_func: Callable | None = None
+    ):
         """Returns xarray in proj crs"""
         ds = self.ds_geo.rio.reproject(
             self.proj_crs,
@@ -70,30 +78,39 @@ class Data3DEP(BaseData):
         ds['GroundSlope'].values[ds[self.dem].isnull()] = np.nan
         ds['GroundAspect'].values[ds[self.dem].isnull()] = np.nan
         ds = ds.drop_vars(['band', 'spatial_ref'], errors='ignore')
+        if filter_func is not None:
+            sin_term = np.sin(np.radians(ds['GroundSlope'].values))
+            term1 = np.cos(np.radians(ds['GroundAspect'].values)) * sin_term
+            term1[np.isnan(term1)] = 0.
+            term2 = np.sin(np.radians(ds['GroundAspect'].values)) * sin_term
+            term2[np.isnan(term2)] = 0.
+            ds['OroTerm1'] = (('y', 'x'), filter_func(term1))
+            ds['OroTerm2'] = (('y', 'x'), filter_func(term2))
         return ds
 
     @classmethod
     def download_function(cls, ix):
         with open(os.devnull, 'w', encoding='UTF-8') as f:
-            lonlat_bnd, domain_dir, proj_crs, resolution = ix
+            lonlat_bnd, domain_dir, proj_crs, resolution, verbose = ix
             #print(lonlat_bnd, domain_dir, proj_crs, resolution)
             #sys.stdout = f
             dep3 = Data3DEP(
                 lonlat_bounds=lonlat_bnd,
                 resolution=resolution,
                 proj_crs=proj_crs,
-                out_dir=domain_dir
+                out_dir=domain_dir,
+                verbose=verbose
             )
             dep3.download()
             #sys.stdout = sys.__stdout__
         return dep3
 
     @classmethod
-    def annotate_function(cls, ituple):
+    def annotate_function(cls, ituple, **kwargs):
         xlocs, ylocs, _, dep3_obj = ituple
         xlocs_xr = xr.DataArray(xlocs, dims=['points'])
         ylocs_xr = xr.DataArray(ylocs, dims=['points'])
-        return dep3_obj.ds.interp(
+        return dep3_obj.get_ds(**kwargs).interp(
             x=xlocs_xr,
             y=ylocs_xr,
             method='linear',
@@ -159,7 +176,12 @@ def compute_aspect_degrees(z_mat: np.ndarray, res: float):
     dz_dx = ((z_3 + 2 * z_6 + z_9) - (z_1 + 2 * z_4 + z_7)) / (8 * res)
     dz_dy = ((z_1 + 2 * z_2 + z_3) - (z_7 + 2 * z_8 + z_9)) / (8 * res)
     dz_dx[dz_dx == 0.] = 1e-10
-    angle = np.degrees(np.arctan(np.divide(dz_dy, dz_dx)))
-    angle_mod = 90. * np.divide(dz_dx, np.absolute(dz_dx))
-    aspect[1:-1, 1:-1] = 180. - angle + angle_mod
+    #dz_dy[dz_dy == 0.] = 1e-10
+    #angle = np.degrees(np.arctan(np.divide(dz_dy, dz_dx)))
+    angle = np.degrees(np.arctan2(dz_dy, dz_dx))
+    angle = angle - np.sign(angle) * 180.
+    # angle_mod = 90. * np.divide(dz_dx, np.absolute(dz_dx))
+    # aspect[1:-1, 1:-1] = 180. - angle + angle_mod
+    # aspect = (-np.nan_to_num(aspect) + 90) % 360
+    aspect[1:-1, 1:-1] = angle
     return np.nan_to_num(aspect)
