@@ -169,14 +169,15 @@ class KalmanFilterBase(FilterAttributesStatic, FilterAttributesDynamic):
         yprec: ndarray | None = None
     ):
         """compute filter performance metrics"""
-        idict = {'NIS': np.nan, 'NEES': np.nan, 'LogLik': np.nan}
+        idict = {'MetricNIS': np.nan,
+                 'MetricNEES': np.nan, 'MetricLogLik': np.nan}
         if (yres is not None) and (yprec is not None):
-            idict['NIS'] = np.linalg.multi_dot([yres.T, yprec, yres])
+            idict['MetricNIS'] = np.linalg.multi_dot([yres.T, yprec, yres])
             prec_det = np.linalg.det(yprec)
-            idict['LogLik'] = -0.5 * (self.ny * np.log(2. * np.pi) -
-                                      np.log(prec_det) + idict['NIS'])
+            idict['MetricLogLik'] = -0.5 * (self.ny * np.log(2. * np.pi) -
+                                            np.log(prec_det) + idict['MetricNIS'])
         if (xres is not None) and (xprec is not None):
-            idict['NEES'] = np.linalg.multi_dot([xres.T, xprec, xres])
+            idict['MetricNEES'] = np.linalg.multi_dot([xres.T, xprec, xres])
         return idict
 
     def get_loglik_of_obs(

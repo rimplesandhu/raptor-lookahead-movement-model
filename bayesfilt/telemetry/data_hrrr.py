@@ -24,7 +24,8 @@ from ._base_data import BaseGeoData
 
 class DataHRRR(BaseGeoData):
     """Class for downloading HRRR data"""
-    hrrr_proj4 = '+ellps=WGS84 +a=6371229.0 +b=6371229.0 +proj=lcc +lon_0=262.5 +lat_0=38.5 +x_0=0.0 +y_0=0.0 +lat_1=38.5 \
+    hrrr_proj4 = '+ellps=WGS84 +a=6371229.0 +b=6371229.0 +proj=lcc \
+                +lon_0=262.5 +lat_0=38.5 +x_0=0.0 +y_0=0.0 +lat_1=38.5 \
                 +lat_2=38.5 +no_defs'
     hrrr_crs = hrrr_proj4
     variables = {
@@ -33,6 +34,9 @@ class DataHRRR(BaseGeoData):
         ':UGRD:80 m': 'WindSpeedU_80m',
         ':VGRD:80 m': 'WindSpeedV_80m',
         ':TMP:surface': 'Temperature_0m',
+        ':HPBL': 'BoundaryLayerHeight',
+        # ':SHTFL': 'SensibleHeatFlux',
+        ':TMP:2 m': 'Temperature_2m'
     }
 
     def __init__(
@@ -40,7 +44,7 @@ class DataHRRR(BaseGeoData):
         time_utc: datetime64,
         **kwargs
     ):
-        BaseGeoData.__init__(self, proj_crs=self.hrrr_crs, **kwargs,)
+        BaseGeoData.__init__(self, proj_crs=self.hrrr_crs, **kwargs)
         #self.proj_crs = self.hrrr_crs
         self.time_utc = np.datetime64(time_utc)
         self.time_str = np.datetime_as_string(self.time_utc, unit='h',
@@ -87,7 +91,7 @@ class DataHRRR(BaseGeoData):
             ids = self.add_xy_coords_to_hrrr_xarray(ids)
             ids = self.refine_hrrr_xarray(ids)
             ids = ids.rename({list(ids.keys())[0]: ivarname})
-        except Exception as _:
+        except ValueError as _:
             success = False
             #self.printit(f'{time_str}: aws or ssrs.HRRR issue')
         else:
@@ -99,7 +103,7 @@ class DataHRRR(BaseGeoData):
                         raise ValueError
                     ids[iname] = (('y', 'x'), idata)
                     ids[iname].attrs = tds[list(tds.keys())[0]].attrs
-                except Exception as _:
+                except ValueError as _:
                     success = False
                     #self.printit(f' {time_str}-{iname}-problem!')
             ids['time'] = self.time_utc
@@ -109,16 +113,20 @@ class DataHRRR(BaseGeoData):
 
     def download(self):
         """DOwnload function"""
+        success = True
         try:
             ids = xr.open_dataset(self.filepath, engine='scipy')
             if not set(self.variables.values()).issubset(set(ids.keys())):
-                raise FileNotFoundError
-        except Exception as _:
+                success = False
+        except FileNotFoundError as _:
             success = False
             itr = iter(sorted(np.arange(-12, 12), key=abs))
             while not success:
                 new_time_utc = self.time_utc + np.timedelta64(next(itr), 'h')
                 success = self.download_this_time(new_time_utc)
+        else:
+            if not success:
+                _ = self.download_this_time(self.time_utc)
 
     @classmethod
     def download_function(cls, ix):
@@ -146,7 +154,7 @@ class DataHRRR(BaseGeoData):
                 combine='nested',
                 concat_dim=('time')
             )
-        except Exception as _:
+        except ValueError as _:
             print(f'{fpath.as_posix()}:check-this-day')
         else:
             #print(f'{day_string}:got-{ds.time.size}-times', flush=True)

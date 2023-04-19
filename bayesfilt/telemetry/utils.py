@@ -4,17 +4,32 @@
 # pylint: disable=too-many-public-methods
 # pylint: disable=invalid-name
 # pylint: disable=logging-fstring-interpolation
-from typing import Callable, Sequence
-from functools import partial
-from dataclasses import dataclass, field
-import time
+import sys
+from typing import Sequence
 import numpy as np
-import tqdm
+from tqdm import tqdm
 import pandas as pd
-# import pathos.multiprocessing as mp
-from numpy import ndarray
-#from .telemetry_data import TelemetryData
-# from .kalman_resampler import KalmanTrackResampler
+import pathos.multiprocessing as mp
+
+
+def run_loop(func, input_list, ncores=mp.cpu_count(), **kwargs):
+    """Run parallel simulation"""
+    pbar = tqdm(
+        iterable=input_list,
+        total=len(input_list),
+        position=0,
+        leave=True,
+        file=sys.stdout,
+        **kwargs
+    )
+    if ncores <= 1:
+        results = []
+        for ix in pbar:
+            results.append(func(ix))
+    else:
+        with mp.Pool(ncores) as pool:
+            results = list(pool.imap(func, pbar))
+    return results
 
 
 def get_bin_edges(locs, width, pad):

@@ -8,7 +8,6 @@ import sys
 from functools import partial
 import logging
 from pathlib import Path
-from tqdm import tqdm
 import cartopy.crs as ccrs
 
 
@@ -20,7 +19,6 @@ class BaseClass:
         out_dir: str | None = None,
         log_level: int | None = None
     ):
-
         # logging
         logging.basicConfig(
             level=log_level,
@@ -35,12 +33,6 @@ class BaseClass:
         if out_dir is not None:
             self.out_dir = Path(out_dir)
         Path(self.out_dir).mkdir(parents=True, exist_ok=True)
-
-    @property
-    def pbar(self):
-        """Returns progress bar"""
-        return partial(tqdm, desc=self.__class__.__name__,
-                       position=0, leave=True, file=sys.stdout)
 
     def raiseit(self, outstr: str = "", err=ValueError) -> None:
         """Raise exception with the out string"""

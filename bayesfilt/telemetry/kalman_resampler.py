@@ -10,43 +10,45 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from numpy import ndarray
-from bayesfilt.filters import KalmanFilter
+from bayesfilt.filters import KalmanFilter, KalmanFilterBase
+from bayesfilt.filters import UnscentedKalmanFilter
+from bayesfilt.models import MotionModel, ObservationModel
 from bayesfilt.models import ConstantAcceleration1D, ConstantVelocity1D
-from bayesfilt.models import LinearObservationModel
+from bayesfilt.models import LinearObservationModel, CVM3D_NL_4
 from .utils import get_bin_edges
 from ._base_data import BaseClass
 
 
 @dataclass
-class ResamplerBase(BaseClass):
+class KalmanResampler(BaseClass):
     """Base class for defining a resampler"""
-    mm = None
-    om = None
-    kf = None
+    dt: float
+    flag: str = field(default='')
+    smoother: bool = True
+    mm: MotionModel = field(init=False)
+    om: ObservationModel = field(init=False)
+    kf: KalmanFilterBase = field(init=False)
 
     def __repr__(self):
-        out_str = self.mm.__str__() + '\n'
-        out_str += self.om.__str__() + '\n'
-        out_str += self.kf.__str__() + '\n'
+        out_str = self.mm.__repr__() + '\n'
+        out_str += self.om.__repr__() + '\n'
+        out_str += self.kf.__repr__() + '\n'
         return out_str
 
 
-class ConstantVelocityResampler(ResamplerBase):
+class ConstantVelocityResampler(KalmanResampler):
     """Class for Constant Velocity based resampler"""
 
-    def __init__(
-        self,
-        dt: float,
-        error_strength: float,
-        dim_name: str = ''
-    ):
+    def __init__(self, error_strength: float, **kwargs):
+        KalmanResampler.__init__(self, **kwargs)
+
         # motion model
-        super().__init__()
         self.mm = ConstantVelocity1D()
         self.mm.state_names = ['Position', 'Velocity']
-        self.mm.state_names = [f'{ix}{dim_name}' for ix in self.mm.state_names]
-        self.mm.dt = dt
-        self.mm.phi['sigma'] = error_strength
+        self.mm.state_names = [
+            f'{ix}{self.flag}' for ix in self.mm.state_names]
+        self.mm.dt = self.dt
+        self.mm.phi = {'sigma': error_strength}
         self.mm.update_matrices()
 
         # observation model
@@ -70,44 +72,40 @@ class ConstantVelocityResampler(ResamplerBase):
     def resample(
         self,
         times: ndarray,
-        positions: ndarray,
+        locs: ndarray,
         error_std: ndarray,
         start_state_std: list[float],
         object_id: int = 0,
-        smoother: bool = True
     ):
         """Resample the track"""
-        self.printit(f'Resampling track-{object_id}..')
+        # self.printit(f'Resampling track-{object_id}..')
         self.kf.objectid = object_id
-        positions = np.atleast_1d(positions)
+        locs = np.atleast_1d(locs)
         times = np.atleast_1d(times)
         error_std = np.atleast_1d(error_std)
-        start_vel = (positions[1] - positions[0]) / times[0]
-        self.kf.m = [positions[0], start_vel]
-        self.kf.P = np.diag(start_state_std)
+        start_vel = (locs[1] - locs[0]) / times[0]
+        self.kf.m = [locs[0], start_vel]
+        self.kf.P = np.diag([ix**2 for ix in start_state_std])
         self.kf.initiate(t0=times[0])
         list_of_rmats = [np.diag([ix**2]) for ix in error_std]
-        self.kf.filter(times[1:], positions[1:], list_of_rmats[1:])
-        if smoother:
+        self.kf.filter(times[1:], locs[1:], list_of_rmats[1:])
+        if self.smoother:
             self.kf.smoother()
 
 
-class ConstantAccelerationResampler(ResamplerBase):
+class ConstantAccelerationResampler(KalmanResampler):
     """Class for Constant Acceleration based resampler"""
 
-    def __init__(
-        self,
-        dt: float,
-        error_strength: float,
-        dim_name: str = ''
-    ):
+    def __init__(self, error_strength: float, **kwargs):
+        KalmanResampler.__init__(self, **kwargs)
+
         # motion model
-        super().__init__()
         self.mm = ConstantAcceleration1D()
         self.mm.state_names = ['Position', 'Velocity', 'Acceleration']
-        self.mm.state_names = [f'{ix}{dim_name}' for ix in self.mm.state_names]
-        self.mm.dt = dt
-        self.mm.phi['sigma'] = error_strength
+        self.mm.state_names = [
+            f'{ix}{self.flag}' for ix in self.mm.state_names]
+        self.mm.dt = self.dt
+        self.mm.phi = {'sigma': error_strength}
         self.mm.update_matrices()
 
         # observation model
@@ -131,26 +129,108 @@ class ConstantAccelerationResampler(ResamplerBase):
     def resample(
         self,
         times: ndarray,
-        positions: ndarray,
+        locs: ndarray,
         error_std: ndarray,
         start_state_std: list[float],
-        object_id: int = 0,
-        smoother: bool = True
+        object_id: int = 0
     ):
         """Resample the track"""
-        self.printit(f'Resampling track-{object_id}..')
+        # self.printit(f'Resampling track-{object_id}..')
         self.kf.objectid = object_id
-        positions = np.atleast_1d(positions)
+        locs = np.atleast_1d(locs)
         times = np.atleast_1d(times)
         error_std = np.atleast_1d(error_std)
-        start_vel = (positions[1] - positions[0]) / times[0]
-        self.kf.m = [positions[0], start_vel, 0.]
-        self.kf.P = np.diag(start_state_std)
+        start_vel = (locs[1] - locs[0]) / times[0]
+        self.kf.m = [locs[0], start_vel, 0.]
+        self.kf.P = np.diag([ix**2 for ix in start_state_std])
         self.kf.initiate(t0=times[0])
         list_of_rmats = [np.diag([ix**2]) for ix in error_std]
-        self.kf.filter(times[1:], positions[1:], list_of_rmats[1:])
-        if smoother:
+        self.kf.filter(times[1:], locs[1:], list_of_rmats[1:])
+        if self.smoother:
             self.kf.smoother()
+
+
+class CorrelatedVelocityResampler(KalmanResampler):
+    """Class for Constant Acceleration based resampler"""
+
+    def __init__(self, phi: dict, **kwargs):
+        KalmanResampler.__init__(self, **kwargs)
+
+        # motion model
+        self.mm = CVM3D_NL_4()
+        self.mm.dt = self.dt
+        self.mm.phi = phi
+        # self.mm.update_matrices()
+
+        # observation model
+        self.om = LinearObservationModel(
+            nx=self.mm.nx,
+            observed_state_inds=[0, 1, 2, 3, 6, 7]
+        )
+        self.om.state_names = self.mm.state_names
+
+        self.kf = UnscentedKalmanFilter(
+            nx=self.mm.nx,
+            ny=self.om.ny,
+            dt=self.mm.dt,
+            pars={'alpha': .0001, 'beta': 2.,
+                  'kappa': -9, 'use_cholesky': True},
+            fun_f=self.mm.func_f,
+            fun_Q=self.mm.func_Q,
+            mat_H=self.om.H,
+            state_names=self.mm.state_names,
+            verbose=False
+        )
+
+    def resample(
+        self,
+        dftrack,
+    ):
+        """Resample the track"""
+        # self.printit(f'Resampling track-{object_id}..')
+        self.kf.objectid = dftrack['TrackID'].iloc[0]
+        start_state_dict = {
+            'PositionX': (dftrack['PositionX'].iloc[0], 4.),
+            'PositionY': (dftrack['PositionY'].iloc[0], 4.),
+            'VelocityX': (dftrack['VelocityX'].iloc[0], 2.),
+            'VelocityY': (dftrack['VelocityY'].iloc[0], 2.),
+            'DriftX': (dftrack['VelocityX'].iloc[0] * 1, 2.),
+            'DriftY': (dftrack['VelocityY'].iloc[0] * 1, 2.),
+            'PositionZ': (dftrack['Altitude'].iloc[0], 5.),
+            'VelocityZ': (dftrack['VelocityVer'].iloc[0], 2.),
+            'DriftZ': (0., 1.),
+            'Omega': (0., 0.05),  # 0.1 is 6 deg
+            'LogTauVer': (-2, 0.5),
+            'LogTauHor': (-2, 1.)
+        }
+        list_of_times = list(dftrack[['TrackTimeElapsed']].values[:, 0])
+        self.kf.initiate_state(start_state_dict)
+        self.kf.initiate(t0=list_of_times[0])
+        observation_vars = {
+            'PositionX': dftrack[['PositionX_var']].values.squeeze() * (2.5**2) * 1,
+            'PositionY': dftrack[['PositionY_var']].values.squeeze() * (2.5**2) * 1,
+            'VelocityX': dftrack[['VelocityX_var']].values.squeeze() * (2**2) * 1,
+            'VelocityY': dftrack[['VelocityY_var']].values.squeeze() * (2**2) * 1,
+            'Altitude': dftrack[['Altitude_var']].values.squeeze() * (2.5**2) * 1,
+            'VelocityVer': dftrack[['VelocityVer_var']].values.squeeze() * (3**2) * 1
+        }
+        obs_vars = ['PositionX', 'PositionY', 'VelocityX',
+                    'VelocityY', 'Altitude', 'VelocityVer']
+        list_of_observation_covs = [
+            np.diag(ix) for ix in np.array(list(observation_vars.values())).T]
+        list_of_observations = list(dftrack[obs_vars].values)
+
+        try:
+            self.kf.filter(list_of_times[1:], list_of_observations[1:],
+                           list_of_observation_covs[1:])
+            if self.smoother:
+                self.kf.smoother()
+            # if np.amax(np.abs(kf.get_mean('Omega'))) > 2.:
+            #     raise ValueError
+            # print(f'{track_id}-good', flush=True)
+        except Exception as e:
+            # pass
+            print(f'CVMresampler: {self.kf.objectid}-issue-{e}', flush=True)
 
 
 # class KalmanTrackResampler:
@@ -205,7 +285,7 @@ class ConstantAccelerationResampler(ResamplerBase):
 #     def resample(
 #         self,
 #         times: ndarray,
-#         positions: ndarray,
+#         locs: ndarray,
 #         error_std: ndarray,
 #         start_state_std: list[float],
 #         object_id: int = 0,
@@ -214,19 +294,19 @@ class ConstantAccelerationResampler(ResamplerBase):
 #         """Resample the track"""
 #         self.printit(f'Resampling track-{object_id}..')
 #         self.kf.objectid = object_id
-#         positions = np.atleast_1d(positions)
+#         locs = np.atleast_1d(locs)
 #         times = np.atleast_1d(times)
 #         error_std = np.atleast_1d(error_std)
-#         start_vel = (positions[1] - positions[0]) / times[0]
+#         start_vel = (locs[1] - locs[0]) / times[0]
 #         if self.mm.nx == 3:
-#             self.kf.m = [positions[0], start_vel, 0.]
+#             self.kf.m = [locs[0], start_vel, 0.]
 #             self.kf.P = np.diag(start_state_std)
 #         else:
-#             self.kf.m = [positions[0], start_vel]
+#             self.kf.m = [locs[0], start_vel]
 #             self.kf.P = np.diag(start_state_std)
 #         self.kf.initiate(t0=times[0])
 #         list_of_rmats = [np.diag([ix**2]) for ix in error_std]
-#         self.kf.filter(times[1:], positions[1:], list_of_rmats[1:])
+#         self.kf.filter(times[1:], locs[1:], list_of_rmats[1:])
 #         if smoother:
 #             self.kf.smoother()
 

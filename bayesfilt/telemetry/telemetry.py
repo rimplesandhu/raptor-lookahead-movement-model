@@ -17,6 +17,7 @@ from .utils import get_bin_edges, get_unique_times
 from ._base_data import BaseGeoData
 from .data_3dep import Data3DEP
 from .data_hrrr import DataHRRR
+from .utils import run_loop
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,7 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         regions: ndarray | None = None,
         animalids: ndarray | None = None,
         times_local: ndarray | None = None,
+        df_add: pd.DataFrame | None = None,
         **kwargs
     ):
         # initialize
@@ -64,6 +66,7 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         Path(self.threedep_dir).mkdir(parents=True, exist_ok=True)
         self.hrrr_dir = self.out_dir / 'data_hrrr'
         Path(self.hrrr_dir).mkdir(parents=True, exist_ok=True)
+        self.domain_fpath = Path(self.threedep_dir, 'subdomains')
 
         # create dataframe
         self.df_subdomains: pd.DataFrame = pd.DataFrame()
@@ -72,6 +75,10 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
             self.lat_col: np.asarray(lats),
             self.lon_col: np.asarray(lons)
         })
+        if (df_add is not None) & (isinstance(df_add, pd.DataFrame)):
+            for icol in df_add.columns:
+                if icol not in self.df.columns:
+                    self.df[icol] = df_add[icol]
 
         # compute x and y positions in proj ref system
         xylocs = self.proj_crs.transform_points(
@@ -118,20 +125,14 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         if total_mem > 1024:
             self.log.warning(f'Memory usage of {total_mem} MB')
 
-    def info(self):
-        """Returns the compresses info of the dataframe containing the data"""
-        self.df.info(verbose=True, memory_usage=True, show_counts=True)
+    # def resample(
+    #         self,
+    #         resampler
+    # ):
+    #     """Resample tracks using Kalman filtering"""
+    #     def _resampler(idf):
 
-    def _run(self, func, input_list, ncores):
-        """Run parallel simulation"""
-        if ncores <= 1:
-            results = []
-            for ix in self.pbar(input_list, total=len(input_list)):
-                results.append(func(ix))
-        else:
-            with mp.Pool(ncores) as pool:
-                results = list(pool.imap(func, self.pbar(input_list)))
-        return results
+    #     pass
 
     def download_3dep_data(
         self,
@@ -151,10 +152,11 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
                 (lonlat_bnd, domain_dir,
                  self.proj_crs.proj4_init, resolution, verbose)
             )
-        results = self._run(
-            Data3DEP.download_function,
-            list_of_inputs,
-            ncores
+        results = run_loop(
+            func=Data3DEP.download_function,
+            input_list=list_of_inputs,
+            ncores=ncores,
+            desc=self.__class__.__name__
         )
         self.df_subdomains['threedep'] = results
         self.printit(f'3DEP data saved in {self.threedep_dir}')
@@ -173,7 +175,12 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         list_of_inputs = []
         for itime in unique_times:
             list_of_inputs.append((itime, self.hrrr_dir))
-        _ = self._run(DataHRRR.download_function, list_of_inputs, ncores)
+        _ = run_loop(
+            func=DataHRRR.download_function,
+            input_list=list_of_inputs,
+            ncores=ncores,
+            desc=self.__class__.__name__
+        )
         self.printit(f'HRRR data saved in {self.hrrr_dir}')
 
     def annotate_hrrr_data(
@@ -208,12 +215,19 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
                 np.where(final_bool)[0],
                 self.hrrr_dir / f'{day_string}*.nc'
             ))
-        results = self._run(DataHRRR.annotate_function, list_of_inputs, ncores)
+        results = run_loop(
+            func=DataHRRR.annotate_function,
+            input_list=list_of_inputs,
+            ncores=ncores,
+            desc=self.__class__.__name__
+        )
+       # results = self._run(DataHRRR.annotate_function, list_of_inputs, ncores)
         for _, iname in DataHRRR.variables.items():
             self._add_new_column(iname)
         for iresult, ituple in zip(results, list_of_inputs):
             for k, v in iresult.items():
                 self.df.loc[ituple[3], k] = np.array(v)
+        self.df.sort_index(axis=1, inplace=True)
 
     def annotate_3dep_data(
         self,
@@ -227,9 +241,7 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
     ) -> None:
         """Annotate 3dep data"""
         self.printit(f'Annotating 3DEP data using {ncores} cores..')
-        if self.df_subdomains.empty:
-            self.partition_into_subdomains()
-            self.download_3dep_data(verbose=False)
+        self.download_3dep_data(verbose=False)
         h_col = self.heading_col if heading_col is None else heading_col
         self.check_validity_of_columns(h_col)
         track_bool = self.df[self.trackid_col] > 0
@@ -250,7 +262,13 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
             if len(inds) > 0:
                 list_of_inputs.append((xlocs, ylocs, inds, irow['threedep']))
         fn = partial(Data3DEP.annotate_function, filter_func=filter_func)
-        results = self._run(fn, list_of_inputs, ncores)
+        results = run_loop(
+            func=fn,
+            input_list=list_of_inputs,
+            ncores=ncores,
+            desc=self.__class__.__name__
+        )
+        #results = self._run(fn, list_of_inputs, ncores)
         for iname in list(results[0].keys()):
             jname = f'{iname}{flag}'
             #self.printit(f'Annotating {jname} to the dataframe..')
@@ -258,6 +276,7 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
             for ids, ituple in zip(results, list_of_inputs):
                 _, _, inds, _ = ituple
                 self.df.loc[inds, jname] = ids[iname].values
+        self.df.sort_index(axis=1, inplace=True)
 
     def _add_new_column(self, iname):
         """Add new column to the dataframe and fill it with nan"""
@@ -374,6 +393,7 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         self.df_subdomains['latmax'] = np.amax(geo_corners, axis=1)[:, 1]
         self.df_subdomains.index.name = self.domain_col
         self.df[self.domain_col] = self.df[self.domain_col].astype('category')
+        self.df_subdomains.to_pickle(self.domain_fpath)
 
     def ignore_data_based_on_vertical_speed(
         self,
@@ -417,6 +437,10 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
     def df_track(self, track_id: int):
         """Returns track df"""
         return self.df[self.df[self.trackid_col] == track_id]
+
+    def info(self):
+        """Returns the compresses info of the dataframe containing the data"""
+        self.df.info(verbose=True, memory_usage=True, show_counts=True)
 
     @ property
     def track_ids(self):
