@@ -186,7 +186,7 @@ class CTRA_RECT(MotionModel):
 
     @property
     def phi_names(self):
-        return ['sigma_omega', 'sigma_accn', 'sigma_w', 'sigma_l']
+        return ['sigma_omega', 'sigma_accn', 'min_speed'] + ['sigma_w', 'sigma_l']
 
     def func_f(
         self,

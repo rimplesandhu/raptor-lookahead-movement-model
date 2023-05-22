@@ -34,13 +34,13 @@ def resample_function_cvm(dftrack):
     #     'sigma_mu_ver': 0.04
     # }
     phi = {
-        'eta_hor': 1.,
+        'eta_hor': 0.5,
         'sigma_log_tau_hor': 0.1,
-        'sigma_mu_hor': 0.2,
+        'sigma_mu_hor': 0.4,
         'sigma_omega': 0.01,
-        'eta_ver': 1.,
+        'eta_ver': 0.5,
         'sigma_log_tau_ver': 0.1,
-        'sigma_mu_ver': 0.04
+        'sigma_mu_ver': 0.1
     }
     cvm = CorrelatedVelocityResampler(phi=phi, dt=1., smoother=True)
     cvm.resample(dftrack)
@@ -138,6 +138,7 @@ def postprocess_dframe(sdf, dftrack, dt):
     sdf['AnimalID'] = [dftrack['AnimalID'].iloc[0]] * len(sdf)
     sdf['Age'] = [dftrack['Age'].iloc[0]] * len(sdf)
     sdf['Sex'] = [dftrack['Sex'].iloc[0]] * len(sdf)
+    sdf['TimeElapsed'] -= sdf['TimeElapsed'].iloc[0]
     return sdf
 
 
@@ -165,18 +166,18 @@ def annotate_derived_vars(rdf, tdf):
     rdf['Longitude'] = np.asarray(xylocs[:, 0]).astype('float32')
     rdf['Latitude'] = np.asarray(xylocs[:, 1]).astype('float32')
     rdf['VelocityHor'] = np.sqrt(rdf['VelocityX']**2 + rdf['VelocityY']**2)
-    rdf['HeadingHor'] = np.arctan2(rdf['VelocityX'], rdf['VelocityY'])
+    rdf['Heading'] = np.degrees(np.arctan2(rdf['VelocityX'], rdf['VelocityY']))
     #rdf['HeadingHor'] = (np.degrees(rdf['HeadingHor'])) % 360
     rdf.reset_index(inplace=True, drop=True)
-    xbool = rdf['PositionX'].between(
-        tdf['PositionX'].min(),
-        tdf['PositionX'].max()
-    )
-    ybool = rdf['PositionY'].between(
-        tdf['PositionY'].min(),
-        tdf['PositionY'].max()
-    )
-    rdf = rdf.loc[(xbool) & (ybool), :]
+    # xbool = rdf['PositionX'].between(
+    #     tdf['PositionX'].min(),
+    #     tdf['PositionX'].max()
+    # )
+    # ybool = rdf['PositionY'].between(
+    #     tdf['PositionY'].min(),
+    #     tdf['PositionY'].max()
+    # )
+    # rdf = rdf.loc[(xbool) & (ybool), :]
     if 'AccelerationX' in rdf.columns:
         rdf['AccnHorTangential'] = (rdf['AccelerationX'] * rdf['VelocityX'] +
                                     rdf['AccelerationY'] * rdf['VelocityY'])
@@ -186,7 +187,7 @@ def annotate_derived_vars(rdf, tdf):
         rdf['AccnHorRadial'] = rdf['AccnHorRadial'] / rdf['VelocityHor']
         rdf['RadiusOfCurvature'] = rdf['VelocityHor']**2 / \
             rdf['AccnHorRadial'].abs()
-        rdf['HeadingRateHor'] = np.degrees(
+        rdf['HeadingRate'] = np.degrees(
             rdf['AccnHorRadial'] / rdf['VelocityHor'])
     return rdf
 
@@ -231,21 +232,21 @@ if __name__ == "__main__":
     print(f'Saving to {rs_fpath}', flush=True)
     rsdf.to_parquet(rs_fpath)
 
-    # run cvm resampler
-    rs_fpath = os.path.join(output_dir, 'telemetry', f'{FNAME}_ca')
-    rsdf = pd.read_parquet(rs_fpath)
-    list_of_dftrack = [rsdf[rsdf['TrackID'] == ix]
-                       for ix in list_of_tracks if ix != 0]
-    results = run_loop(
-        func=resample_function_cvm,
-        input_list=list_of_dftrack,
-        desc='CVMresampler'
-    )
-    rsdf = pd.concat(results)
-    rsdf = annotate_derived_vars(rsdf, df)
-    rs_fpath = os.path.join(output_dir, 'telemetry', f'{FNAME}_cvm')
-    print(f'Saving to {rs_fpath}', flush=True)
-    rsdf.to_parquet(rs_fpath)
+    # # run cvm resampler
+    # rs_fpath = os.path.join(output_dir, 'telemetry', f'{FNAME}_ca')
+    # rsdf = pd.read_parquet(rs_fpath)
+    # list_of_dftrack = [rsdf[rsdf['TrackID'] == ix]
+    #                    for ix in list_of_tracks if ix != 0]
+    # results = run_loop(
+    #     func=resample_function_cvm,
+    #     input_list=list_of_dftrack,
+    #     desc='CVMresampler'
+    # )
+    # rsdf = pd.concat(results)
+    # rsdf = annotate_derived_vars(rsdf, df)
+    # rs_fpath = os.path.join(output_dir, 'telemetry', f'{FNAME}_cvm')
+    # print(f'Saving to {rs_fpath}', flush=True)
+    # rsdf.to_parquet(rs_fpath)
 
     # end
     run_time = np.around(((time.time() - start_time)) / 60., 2)

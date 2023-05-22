@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib import patches
-from bayesfilt.ssm import ObservationModel
+from bayesfilt.models import ObservationModel
 
 
 class TrafficSensor:

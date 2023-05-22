@@ -12,12 +12,15 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import cartopy.crs as ccrs
+import rasterio
 from numpy import ndarray
+from ssrs.layers import calcOrographicUpdraft_original
+from ssrs.raster import transform_coordinates, transform_bounds
 from .utils import get_bin_edges, get_unique_times
 from ._base_data import BaseGeoData
 from .data_3dep import Data3DEP
 from .data_hrrr import DataHRRR
-from .utils import run_loop
+from .utils import run_loop, get_wind_direction, get_bound_from_positions
 
 
 @dataclass(frozen=True)
@@ -60,6 +63,7 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         **kwargs
     ):
         # initialize
+        self.printit('Initiating Telemetry object..')
         BaseGeoData.__init__(self, **kwargs)
         TelemetryAttributeNames.__init__(self)
         self.threedep_dir = self.out_dir / 'data_3dep'
@@ -81,6 +85,7 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
                     self.df[icol] = df_add[icol]
 
         # compute x and y positions in proj ref system
+        self.printit('Computing positions in projected coordinate..')
         xylocs = self.proj_crs.transform_points(
             x=np.asarray(lons),
             y=np.asarray(lats),
@@ -90,6 +95,7 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         self.df[self.y_col] = np.asarray(xylocs[:, 1]).astype('float64')
 
         # compute other horizontal  movement variables
+        self.printit('Computing derived movement variables..')
         tdiff = self.df[self.t_col].diff().dt.total_seconds().bfill().round(5)
         self.df[self.tdiff_col] = tdiff.astype('float32')
         xvel = self.df[self.x_col].diff().bfill().divide(tdiff)
@@ -111,7 +117,8 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         if times_local is not None:
             self.df[self.tlocal_col] = pd.to_datetime(times_local, unit='ms')
 
-        # add other relevant columns
+        # add other relevant columns'
+        self.printit('Cleaning up..')
         self.df[self.region_col] = 'USA' if regions is None else regions
         self.df[self.region_col] = self.df[self.region_col].astype('category')
         self.df[self.region_col] = self.df[self.region_col].cat.remove_unused_categories()
@@ -125,14 +132,126 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         if total_mem > 1024:
             self.log.warning(f'Memory usage of {total_mem} MB')
 
-    # def resample(
-    #         self,
-    #         resampler
-    # ):
-    #     """Resample tracks using Kalman filtering"""
-    #     def _resampler(idf):
+    def get_random_track_segment(
+        self,
+        time_len: float,
+        out_dir: str,
+        rnd_seed: int = None,
+        gf_func=None,
+        max_agl: float = 100000,
+        **kwargs
+    ):
+        np.random.seed(rnd_seed)
+        track_not_found = True
+        while track_not_found:
+            itrack = np.random.choice(self.df.TrackID.unique())
+            dftrack = self.df[self.df[self.trackid_col] == itrack]
+            track_length = dftrack[self.tracktime_col].iloc[-1] - \
+                dftrack[self.tracktime_col].iloc[0]
+            length = min(time_len, track_length)
+            end_row = dftrack.loc[dftrack[self.tracktime_col] >
+                                  length, self.tracktime_col].sample(1)
+            start_time = end_row.item() - length
+            start_index = (dftrack[self.tracktime_col] -
+                           start_time).abs().idxmin()
+            dfs = dftrack.loc[start_index:end_row.index[0]].copy()
+            if dfs['Agl'].quantile(0.9) < max_agl:
+                track_not_found = False
 
-    #     pass
+        # get 3dep data
+        proj_bound = get_bound_from_positions(
+            dfs['PositionX'],
+            dfs['PositionY'],
+            **kwargs
+        )
+        lonlat_bound = transform_bounds(
+            proj_bound, self.proj_crs, self.geo_crs)
+        terrain = Data3DEP(
+            lonlat_bounds=lonlat_bound,
+            resolution=10.,
+            out_dir=out_dir
+        )
+        terrain.download()
+        dst = terrain.get_ds(filter_func=gf_func)
+
+        # get hrrr data
+        hrrr = DataHRRR(
+            time_utc=get_unique_times(dfs['TimeUTC'], scale='h')[0],
+            out_dir=self.hrrr_dir
+        )
+        hrrr.download()
+        dst = dst.rio.write_crs(self.proj_crs).rio.reproject(
+            ccrs.CRS(hrrr.hrrr_crs),
+            resolution=10.,
+            nodata=np.nan,
+            Resampling=rasterio.enums.Resampling.bilinear
+        )
+        #ds = dst
+        ds = hrrr.ds.isel(time=0).interp(
+            x=dst.x,
+            y=dst.y,
+            method='linear'
+        ).merge(dst)
+        proj_bound_hrrr = transform_bounds(
+            proj_bound,
+            self.proj_crs,
+            ccrs.CRS(hrrr.hrrr_crs)
+        )
+        # print(proj_bound_hrrr)
+        ds = ds.where(
+            (ds.x >= proj_bound_hrrr[0]) & (ds.y >= proj_bound_hrrr[1]) &
+            (ds.x <= proj_bound_hrrr[2]) & (ds.y <= proj_bound_hrrr[3]),
+            drop=True
+        )
+        ds['WindSpeed10m'] = np.sqrt(
+            ds['WindSpeedU10m']**2 +
+            ds['WindSpeedV10m']**2
+        )
+        ds['WindDirection10m'] = get_wind_direction(
+            ds['WindSpeedU10m'],
+            ds['WindSpeedV10m']
+        )
+        ds['WindSpeed80m'] = np.sqrt(
+            ds['WindSpeedU80m']**2 +
+            ds['WindSpeedV80m']**2
+        )
+        ds['WindDirection80m'] = get_wind_direction(
+            ds['WindSpeedU80m'],
+            ds['WindSpeedV80m']
+        )
+        if gf_func is not None:
+            ds['OroSmooth'] = np.cos(np.radians(
+                ds['WindDirection80m'])) * ds['OroTerm1']
+            ds['OroSmooth'] += np.sin(np.radians(ds['WindDirection80m'])
+                                      ) * ds['OroTerm2']
+            ds['OroSmooth'] *= ds['WindSpeed80m']
+            ds['OroSmooth'] = ds['OroSmooth'].clip(min=0.)
+        else:
+            oro_updraft = calcOrographicUpdraft_original(
+                wspeed=ds['WindSpeed80m'].values,
+                wdirn=ds['WindDirection80m'].values,
+                slope=ds['GroundSlope'].values,
+                aspect=ds['GroundAspect'].values,
+                res_terrain=10.,
+                res=10.,
+                min_updraft_val=1e-5
+            )
+            ds['Oro'] = (('y', 'x'), oro_updraft)
+        ds = ds.drop_vars(['WindSpeedU10m', 'WindSpeedV10m'])
+        ds = ds.drop_vars(['WindSpeedU80m', 'WindSpeedV80m'])
+        ds = ds.drop_vars(['OroTerm1', 'OroTerm2'])
+        southwest = (ds.x.min().item(), ds.y.min().item())
+        ds['x'] = ds.x - southwest[0]
+        ds['y'] = ds.y - southwest[1]
+        dfs['TrackTimeElapsed'] -= dfs['TrackTimeElapsed'].iloc[0]
+        xylocs = ccrs.CRS(self.proj_crs).transform_points(
+            x=np.asarray(southwest[0]),
+            y=np.asarray(southwest[1]),
+            src_crs=ccrs.CRS(hrrr.hrrr_crs)
+        )
+        dfs['PositionX'] -= xylocs[0][0]
+        dfs['PositionY'] -= xylocs[0][1]
+        return dfs, ds
 
     def download_3dep_data(
         self,
@@ -191,11 +310,11 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         """Returns HRRR data for this day and locations"""
         self.download_hrrr_data()
         self.printit(f'Annotating HRRR data using {ncores} cores..')
-        unique_days = get_unique_times(self.df[self.t_col], time_scale='D')
+        unique_days = get_unique_times(self.df[self.t_col], scale='D')
         if tracks_only:
             unique_days = get_unique_times(
                 self.df.loc[self.df[self.trackid_col] > 0, self.t_col],
-                time_scale='D'
+                scale='D'
             )
         locs_hrrr = ccrs.CRS(DataHRRR.hrrr_crs).transform_points(
             x=self.df[self.lon_col].values,
@@ -205,6 +324,7 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         list_of_inputs = []
         for iday in unique_days:
             day_string = np.datetime_as_string(iday, unit='D', timezone='UTC')
+            day_string = str(day_string).replace('-', '')
             final_bool = self.df[self.t_col].astype('datetime64[D]') == iday
             if tracks_only:
                 final_bool = (final_bool) & (self.df[self.trackid_col] > 0)
@@ -244,7 +364,8 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         self.download_3dep_data(verbose=False)
         h_col = self.heading_col if heading_col is None else heading_col
         self.check_validity_of_columns(h_col)
-        track_bool = self.df[self.trackid_col] > 0
+        if tracks_only:
+            track_bool = self.df[self.trackid_col] > 0
         list_of_inputs = []
         for _, irow in self.df_subdomains.iterrows():
             ibnd = irow[['lonmin', 'latmin', 'lonmax', 'latmax']].values
@@ -268,10 +389,10 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
             ncores=ncores,
             desc=self.__class__.__name__
         )
-        #results = self._run(fn, list_of_inputs, ncores)
+        # results = self._run(fn, list_of_inputs, ncores)
         for iname in list(results[0].keys()):
             jname = f'{iname}{flag}'
-            #self.printit(f'Annotating {jname} to the dataframe..')
+            # self.printit(f'Annotating {jname} to the dataframe..')
             self._add_new_column(jname)
             for ids, ituple in zip(results, list_of_inputs):
                 _, _, inds, _ = ituple
@@ -284,6 +405,52 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
             self.df[iname] = np.nan
             self.df[iname] = self.df[iname].astype('float32')
 
+    def annotate_wind_conditions(self, list_of_heights: list[float]):
+        """Annotate with wind conditions"""
+        for ihgt in list_of_heights:
+            istr = f'{str(int(ihgt))}m'
+            speed_col = f'WindSpeed{istr}'
+            dirn_col = f'WindDirection{istr}'
+            angle_col = f'WindRelativeAngle{istr}'
+            self.df[speed_col] = np.sqrt(
+                self.df[f'WindSpeedU{istr}']**2 +
+                self.df[f'WindSpeedV{istr}']**2
+            )
+            self.df[dirn_col] = get_wind_direction(
+                self.df[f'WindSpeedU{istr}'],
+                self.df[f'WindSpeedV{istr}']
+            )
+            self.df[angle_col] = self.df[self.heading_col].subtract(
+                180 + self.df[dirn_col])
+            self.df.loc[self.df[angle_col] > 180, angle_col] -= 360
+            self.df.loc[self.df[angle_col] < -180, angle_col] += 360
+            self.df[f'WindSupport{istr}'] = np.cos(np.radians(
+                self.df[angle_col])) * self.df[speed_col]
+            self.df[f'WindLateral{istr}'] = np.sin(np.radians(
+                self.df[angle_col])) * self.df[speed_col]
+
+    def annotate_orographic_updraft(self, flag):
+        """annotate orographic updrafts"""
+        jname = f'OroSmooth{flag}'
+        wdirn = 'WindDirection80m'
+        wspeed = 'WindSpeed80m'
+        term1 = f'OroTerm1{flag}'
+        term2 = f'OroTerm2{flag}'
+        self.df[jname] = np.cos(np.radians(self.df[wdirn])) * self.df[term1]
+        self.df[jname] += np.sin(np.radians(self.df[wdirn])) * self.df[term2]
+        self.df[jname] *= self.df[wspeed]
+        # csg.df[f'{jname}_mod'] = expit(2 * (csg.df[jname] - 0.75))
+        self.df[jname].clip(lower=0., inplace=True)
+        self.df[f'Oro{flag}'] = calcOrographicUpdraft_original(
+            wspeed=self.df[wspeed].values,
+            wdirn=self.df[wdirn].values,
+            slope=self.df[f'GroundSlope{flag}'].values,
+            aspect=self.df[f'GroundAspect{flag}'].values,
+            res_terrain=10.,
+            res=10.,
+            min_updraft_val=1e-5
+        )
+
     def sort_df(
         self,
         by: list[str] | None = None
@@ -295,7 +462,7 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         self.check_validity_of_columns(by)
         self.df.set_index(by, inplace=True, drop=False)
         self.df.sort_index(inplace=True)
-        # self.df.sort_index(axis=1, inplace=True)
+        self.df.sort_index(axis=1, inplace=True)
         self.df.reset_index(inplace=True, drop=True)
 
     def annotate_track_info(
@@ -344,21 +511,20 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         x_width: float = 20 * 1000,
         y_width: float = 20 * 1000,
         pad: float = 1000.,
-        by: str | None = None
+        save_domain: bool = False
     ) -> None:
         """Parition spatial data into rectangular chunks"""
-        by = self.region_col if by is None else by
-        x_col = self.x_col
-        y_col = self.y_col
-        self.check_validity_of_columns([x_col, y_col])
+        self.check_validity_of_columns([self.x_col, self.y_col])
         self.df[self.domain_col] = -1
         self.df_subdomains = {}
         for iregion in self.df[self.region_col].unique():
             rbool = self.df[self.region_col] == iregion
-            x_edges = get_bin_edges(self.df.loc[rbool, x_col], x_width, pad)
-            y_edges = get_bin_edges(self.df.loc[rbool, y_col], y_width, pad)
-            x_bins = np.digitize(self.df.loc[rbool, x_col], x_edges)
-            y_bins = np.digitize(self.df.loc[rbool, y_col], y_edges)
+            x_edges = get_bin_edges(
+                self.df.loc[rbool, self.x_col], x_width, pad)
+            y_edges = get_bin_edges(
+                self.df.loc[rbool, self.y_col], y_width, pad)
+            x_bins = np.digitize(self.df.loc[rbool, self.x_col], x_edges)
+            y_bins = np.digitize(self.df.loc[rbool, self.y_col], y_edges)
             uniq, domain_idx = np.unique(
                 np.vstack((x_bins, y_bins)),
                 axis=1,
@@ -393,7 +559,8 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         self.df_subdomains['latmax'] = np.amax(geo_corners, axis=1)[:, 1]
         self.df_subdomains.index.name = self.domain_col
         self.df[self.domain_col] = self.df[self.domain_col].astype('category')
-        self.df_subdomains.to_pickle(self.domain_fpath)
+        if save_domain:
+            self.df_subdomains.to_pickle(self.domain_fpath)
 
     def ignore_data_based_on_vertical_speed(
         self,

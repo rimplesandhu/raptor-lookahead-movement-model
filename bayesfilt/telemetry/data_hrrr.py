@@ -29,14 +29,14 @@ class DataHRRR(BaseGeoData):
                 +lat_2=38.5 +no_defs'
     hrrr_crs = hrrr_proj4
     variables = {
-        ':UGRD:10 m': 'WindSpeedU_10m',
-        ':VGRD:10 m': 'WindSpeedV_10m',
-        ':UGRD:80 m': 'WindSpeedU_80m',
-        ':VGRD:80 m': 'WindSpeedV_80m',
-        ':TMP:surface': 'Temperature_0m',
+        ':UGRD:10 m': 'WindSpeedU10m',
+        ':VGRD:10 m': 'WindSpeedV10m',
+        ':UGRD:80 m': 'WindSpeedU80m',
+        ':VGRD:80 m': 'WindSpeedV80m',
+        ':TMP:surface': 'Temperature0m',
         ':HPBL': 'BoundaryLayerHeight',
         # ':SHTFL': 'SensibleHeatFlux',
-        ':TMP:2 m': 'Temperature_2m'
+        ':TMP:2 m': 'Temperature2m'
     }
 
     def __init__(
@@ -49,6 +49,7 @@ class DataHRRR(BaseGeoData):
         self.time_utc = np.datetime64(time_utc)
         self.time_str = np.datetime_as_string(self.time_utc, unit='h',
                                               timezone='UTC')
+        self.time_str = self.time_str.replace('-', '')
         self.filepath = self.out_dir / f'{self.time_str}.nc'
 
     @classmethod
@@ -91,7 +92,7 @@ class DataHRRR(BaseGeoData):
             ids = self.add_xy_coords_to_hrrr_xarray(ids)
             ids = self.refine_hrrr_xarray(ids)
             ids = ids.rename({list(ids.keys())[0]: ivarname})
-        except ValueError as _:
+        except Exception as _:
             success = False
             #self.printit(f'{time_str}: aws or ssrs.HRRR issue')
         else:
@@ -103,22 +104,29 @@ class DataHRRR(BaseGeoData):
                         raise ValueError
                     ids[iname] = (('y', 'x'), idata)
                     ids[iname].attrs = tds[list(tds.keys())[0]].attrs
-                except ValueError as _:
+                except Exception as _:
                     success = False
                     #self.printit(f' {time_str}-{iname}-problem!')
             ids['time'] = self.time_utc
             ids = ids.expand_dims(dim='time')
-            ids.to_netcdf(self.filepath)
+            ids.to_netcdf(self.filepath, engine='netcdf4')
         return success
+
+    @property
+    def ds(self):
+        """Returns xarray"""
+        return xr.open_dataset(self.filepath, engine='scipy')
 
     def download(self):
         """DOwnload function"""
         success = True
         try:
-            ids = xr.open_dataset(self.filepath, engine='scipy')
+            ids = xr.open_dataset(
+                self.filepath
+            )
             if not set(self.variables.values()).issubset(set(ids.keys())):
                 success = False
-        except FileNotFoundError as _:
+        except Exception as _:
             success = False
             itr = iter(sorted(np.arange(-12, 12), key=abs))
             while not success:
@@ -154,7 +162,7 @@ class DataHRRR(BaseGeoData):
                 combine='nested',
                 concat_dim=('time')
             )
-        except ValueError as _:
+        except Exception as _:
             print(f'{fpath.as_posix()}:check-this-day')
         else:
             #print(f'{day_string}:got-{ds.time.size}-times', flush=True)
