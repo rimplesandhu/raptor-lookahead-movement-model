@@ -92,8 +92,8 @@ class Data3DEP(BaseGeoData):
     def download_function(cls, ix):
         with open(os.devnull, 'w', encoding='UTF-8') as f:
             lonlat_bnd, domain_dir, proj_crs, resolution, verbose = ix
-            #print(lonlat_bnd, domain_dir, proj_crs, resolution)
-            #sys.stdout = f
+            # print(lonlat_bnd, domain_dir, proj_crs, resolution)
+            # sys.stdout = f
             dep3 = Data3DEP(
                 lonlat_bounds=lonlat_bnd,
                 resolution=resolution,
@@ -102,7 +102,7 @@ class Data3DEP(BaseGeoData):
                 verbose=verbose
             )
             dep3.download()
-            #sys.stdout = sys.__stdout__
+            # sys.stdout = sys.__stdout__
         return dep3
 
     @classmethod
@@ -176,8 +176,8 @@ def compute_aspect_degrees(z_mat: np.ndarray, res: float):
     dz_dx = ((z_3 + 2 * z_6 + z_9) - (z_1 + 2 * z_4 + z_7)) / (8 * res)
     dz_dy = ((z_1 + 2 * z_2 + z_3) - (z_7 + 2 * z_8 + z_9)) / (8 * res)
     dz_dx[dz_dx == 0.] = 1e-10
-    #dz_dy[dz_dy == 0.] = 1e-10
-    #angle = np.degrees(np.arctan(np.divide(dz_dy, dz_dx)))
+    # dz_dy[dz_dy == 0.] = 1e-10
+    # angle = np.degrees(np.arctan(np.divide(dz_dy, dz_dx)))
     angle = np.degrees(np.arctan2(dz_dy, dz_dx))
     angle = angle - np.sign(angle) * 180.
     # angle_mod = 90. * np.divide(dz_dx, np.absolute(dz_dx))

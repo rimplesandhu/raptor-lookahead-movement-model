@@ -155,7 +155,7 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
             start_index = (dftrack[self.tracktime_col] -
                            start_time).abs().idxmin()
             dfs = dftrack.loc[start_index:end_row.index[0]].copy()
-            if dfs['Agl'].quantile(0.9) < max_agl:
+            if dfs['Agl'].quantile(0.75) < max_agl:
                 track_not_found = False
 
         # get 3dep data
@@ -186,7 +186,7 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
             nodata=np.nan,
             Resampling=rasterio.enums.Resampling.bilinear
         )
-        #ds = dst
+        # ds = dst
         ds = hrrr.ds.isel(time=0).interp(
             x=dst.x,
             y=dst.y,
@@ -564,7 +564,8 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
 
     def ignore_data_based_on_vertical_speed(
         self,
-        max_change: float
+        max_change: float,
+        max_abs_val: float = None
     ) -> None:
         """False fix points based on vertical speed"""
         assert self.zvel_col in self.df.columns, f'Vertical data not loaded!'
@@ -575,6 +576,9 @@ class Telemetry(TelemetryAttributeNames, BaseGeoData):
         cond2 = (vspeed <= 0.) & (vchange >= max_change)
         cond_both = (cond1) | (cond2)
         self.df[self.falsefix_col] = self.df[self.falsefix_col] | cond_both
+        if max_abs_val is not None:
+            condn = (self.df[self.zvel_col].abs() > max_abs_val)
+            self.df[self.falsefix_col] = self.df[self.falsefix_col] | condn
         self.printit(f'Found {cond_both.sum()} bad points - vpseed condition')
 
     def ignore_data_based_on_horizontal_speed(

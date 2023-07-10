@@ -117,22 +117,41 @@ def plot_relation(
     ylim=None
 ):
     lbls = {
-        'Agl': 'Altitude AGL PF [m]',
-        'AglNear': 'Altitude AGL NF [m]',
-        'AglMid': 'Altitude AGL AF [m]',
-        'AglFar': 'Altitude AGL FF [m]',
-        'ElevNearDiff': 'Elev NF-PF [m]',
-        'ElevMidDiff': 'Elev AF-pF [m]',
-        'ElevFarDiff': 'Elev FF-PF [m]',
+        'Agl': 'Altitude AGL F0 [m]',
+        'AglCubic': 'Altitude AGL cubic [m]',
+        'AglMod': 'Altitude AGL F0 Mod [m]',
+        'AglLog': 'Altitude AGL F0 Log [m]',
+        'AglNear': 'Altitude AGL F50 [m]',
+        'AglClose': 'Altitude AGL F250 [m]',
+        'AglMid': 'Altitude AGL F500 [m]',
+        'AglFar': 'Altitude AGL F1000 [m]',
+        'AglFarther': 'Altitude AGL F2000 [m]',
+        'ElevNearDiff': 'Elev F50-F0 [m]',
+        'ElevCloseDiff': 'Elev F250-F0 [m]',
+        'ElevMidDiff': 'Elev F500-F0 [m]',
+        'ElevFarDiff': 'Elev F1000-F0 [m]',
+        'ElevFartherDiff': 'Elev F2000-F0 [m]',
+
+        'OroSmooth': 'Orographic Updraft PF [m/s]',
+        'OroSmoothNearDiff': 'Orographic Updraft F50-F0 [m/s]',
+        'OroSmoothCloseDiff': 'Orographic Updraft F250-F0 [m/s]',
+        'OroSmoothMidDiff': 'Orographic Updraft F500-F0 [m/s]',
+        'OroSmoothFarDiff': 'Orographic Updraft F1000-F0 [m/s]',
+        'OroSmoothFartherDiff': 'Orographic Updraft F2000-F0 [m/s]',
+
+        'OroSmoothNearL30Diff': 'Orographic Updraft F50L30-F50 [m/s]',
+        'OroSmoothNearR30Diff': 'Orographic Updraft F50R30-F50 [m/s]',
+        'OroSmoothNearL60Diff': 'Orographic Updraft F50L60-F50 [m/s]',
+        'OroSmoothNearR60Diff': 'Orographic Updraft F50R60-F50 [m/s]',
+
+        'OroSmoothCloseL30Diff': 'Orographic Updraft F250L30-F250 [m/s]',
+        'OroSmoothCloseR30Diff': 'Orographic Updraft F250R30-F250 [m/s]',
+        'OroSmoothCloseL60Diff': 'Orographic Updraft F250L60-F250 [m/s]',
+        'OroSmoothCLoseR60Diff': 'Orographic Updraft F250R60-F250 [m/s]',
+
         'HeadingRateAbs': 'Heading Rate abs [deg/s]',
         'VelocityHor': 'Horizontal Speed [m/s]',
         'VelocityVer': 'Vertical Speed [m/s]',
-        'OroSmooth': 'Orographic Updraft PF [m/s]',
-        'OroSmoothNearDiff': 'Orographic Updraft NF-PF [m/s]',
-        'OroSmoothMidDiff': 'Orographic Updraft AF-PF [m/s]',
-        'OroSmoothFarDiff': 'Orographic Updraft FF-PF [m/s]',
-        'OroSmoothNearL30Diff': 'Orographic Updraft LNF-NF [m/s]',
-        'OroSmoothNearR30Diff': 'Orographic Updraft RNF-NF [m/s]',
         'WindSpeed80m': 'Wind Speed [m/s]',
         'WindSupport80m': 'Wind Support [m/s]',
         'WindLateral80m': 'Wind Lateral [m/s]',
@@ -149,6 +168,16 @@ def plot_relation(
         'VelocityHorLag20': 'Horizontal Speed 20s ago [m/s]',
         'VelocityVerLag20': 'Vertical Speed 20s ago [m/s]',
         'HeadingRateLag20': 'Heading Rate 20s ago [deg/s]',
+        'VelocityHorLag30': 'Horizontal Speed 30s ago [m/s]',
+        'VelocityVerLag30': 'Vertical Speed 30s ago [m/s]',
+        'HeadingRateLag30': 'Heading Rate 30s ago [deg/s]',
+        'VelocityHorLag60': 'Horizontal Speed 60s ago [m/s]',
+        'VelocityVerLag60': 'Vertical Speed 60s ago [m/s]',
+        'HeadingRateLag60': 'Heading Rate 60s ago [deg/s]',
+        'VelocityHorLag120': 'Horizontal Speed 120s ago [m/s]',
+        'VelocityVerLag120': 'Vertical Speed 120s ago [m/s]',
+        'HeadingRateLag120': 'Heading Rate 120s ago [deg/s]',
+
     }
     if not lags:
         xnames = [ix for ix in xnames if 'Lag' not in ix]
@@ -156,7 +185,7 @@ def plot_relation(
         nrows = int(len(xnames) // 3)
         nrows += 1 if len(xnames) % 3 > 0 else 0
         fig, ax = plt.subplots(nrows, 3, figsize=(
-            12, 2.25 * nrows), sharey=True)
+            12, 2.25 * nrows))
         ax = ax.flatten()
     ynameb = yname.split('Std')[0] if not y_std else yname
     for i, (iax, xname) in enumerate(zip(ax, xnames)):

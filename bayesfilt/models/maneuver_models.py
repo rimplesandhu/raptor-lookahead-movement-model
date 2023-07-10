@@ -125,7 +125,8 @@ class CTRA_POINT(MotionModel):
     ) -> ndarray:
         """Model dynamics function"""
         next_x = np.asarray(deepcopy(x))
-        if x[3] < self.phi['min_speed']:
+        # print(self.phi['min_speed'])
+        if x[3] < 0.2:
             next_x[2] = x[2]
             next_x[3] = x[3]
             next_x[4] = 0.

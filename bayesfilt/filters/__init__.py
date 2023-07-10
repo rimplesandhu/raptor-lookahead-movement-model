@@ -7,4 +7,4 @@ from .sigma_points import SigmaPoints
 from .extended_kalman_filter import ExtendedKalmanFilter
 from .unscented_kalman_filter import UnscentedKalmanFilter
 from .unscented_transform import UnscentedTransform
-#from .utils import *
+from .utils import *

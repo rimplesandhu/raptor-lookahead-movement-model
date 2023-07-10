@@ -55,7 +55,7 @@ def resample_function_ca(dftrack):
     """resample function"""
     track_id = dftrack['TrackID'].iloc[0]
     sampler = partial(ConstantAccelerationResampler, dt=1., smoother=True)
-    rs_x = sampler(error_strength=0.75, flag='X')
+    rs_x = sampler(error_strength=0.7, flag='X')  # 0.75
     rs_x.resample(
         times=dftrack['TrackTimeElapsed'].values,
         locs=dftrack['PositionX'].values,
@@ -63,7 +63,7 @@ def resample_function_ca(dftrack):
         start_state_std=[4., 2., 2.],
         object_id=track_id
     )
-    rs_y = sampler(error_strength=0.75, flag='Y')
+    rs_y = sampler(error_strength=0.7, flag='Y')  # 0.75
     rs_y.resample(
         times=dftrack['TrackTimeElapsed'].values,
         locs=dftrack['PositionY'].values,
@@ -71,11 +71,11 @@ def resample_function_ca(dftrack):
         start_state_std=[4., 2., 2.],
         object_id=track_id
     )
-    rs_z = sampler(error_strength=0.25, flag='Z')
+    rs_z = sampler(error_strength=0.025, flag='Z')  # 0.25
     rs_z.resample(
         times=dftrack['TrackTimeElapsed'].values,
         locs=dftrack['Altitude'].values,
-        error_std=dftrack['ErrorVDOP'].values * 4.0,
+        error_std=dftrack['ErrorVDOP'].values * 4.5,
         start_state_std=[4., 2., 2.],
         object_id=track_id
     )
@@ -120,8 +120,8 @@ def resample_function_cv(dftrack):
 def postprocess_dframe(sdf, dftrack, dt):
     """postprocess function"""
     sdf = sdf.loc[:, ~sdf.columns.duplicated()].copy()
-    #cols_to_drop = [ix for ix in sdf.columns if '_var' in ix]
-    #cols_to_drop = [ix for ix in cols_to_drop if 'Position' not in ix]
+    # cols_to_drop = [ix for ix in sdf.columns if '_var' in ix]
+    # cols_to_drop = [ix for ix in cols_to_drop if 'Position' not in ix]
     cols_to_drop = [ix for ix in sdf.columns if 'Metric' in ix]
     sdf.drop(columns=cols_to_drop, inplace=True)
     sdf['TimeUTC'] = pd.date_range(
@@ -167,7 +167,7 @@ def annotate_derived_vars(rdf, tdf):
     rdf['Latitude'] = np.asarray(xylocs[:, 1]).astype('float32')
     rdf['VelocityHor'] = np.sqrt(rdf['VelocityX']**2 + rdf['VelocityY']**2)
     rdf['Heading'] = np.degrees(np.arctan2(rdf['VelocityX'], rdf['VelocityY']))
-    #rdf['HeadingHor'] = (np.degrees(rdf['HeadingHor'])) % 360
+    # rdf['HeadingHor'] = (np.degrees(rdf['HeadingHor'])) % 360
     rdf.reset_index(inplace=True, drop=True)
     # xbool = rdf['PositionX'].between(
     #     tdf['PositionX'].min(),
@@ -203,7 +203,7 @@ if __name__ == "__main__":
     df = pd.read_parquet(vrate_fpath)
     df_bool = df['Group'].isin(['pa', 'wy', 'hr'])
     list_of_tracks = df.loc[df_bool, 'TrackID'].unique()
-    #list_of_tracks = csg.df['TrackID'].unique()
+    # list_of_tracks = csg.df['TrackID'].unique()
     list_of_dftrack = [df[df['TrackID'] == ix]
                        for ix in list_of_tracks if ix != 0]
 

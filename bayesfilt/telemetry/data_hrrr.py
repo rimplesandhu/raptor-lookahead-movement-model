@@ -45,7 +45,7 @@ class DataHRRR(BaseGeoData):
         **kwargs
     ):
         BaseGeoData.__init__(self, proj_crs=self.hrrr_crs, **kwargs)
-        #self.proj_crs = self.hrrr_crs
+        # self.proj_crs = self.hrrr_crs
         self.time_utc = np.datetime64(time_utc)
         self.time_str = np.datetime_as_string(self.time_utc, unit='h',
                                               timezone='UTC')
@@ -83,8 +83,8 @@ class DataHRRR(BaseGeoData):
     def download_this_time(self, time_utc):
         """Function for downloading data at the given time"""
         success = True
-        #time_str = np.datetime_as_string(time_utc, unit='h', timezone='UTC')
-        #self.printit(f'Trying {time_str}..')
+        # time_str = np.datetime_as_string(time_utc, unit='h', timezone='UTC')
+        # self.printit(f'Trying {time_str}..')
         try:
             hobj = HRRR(time_utc)
             ivar, ivarname = list(self.variables.items())[0]
@@ -94,7 +94,7 @@ class DataHRRR(BaseGeoData):
             ids = ids.rename({list(ids.keys())[0]: ivarname})
         except Exception as _:
             success = False
-            #self.printit(f'{time_str}: aws or ssrs.HRRR issue')
+            # self.printit(f'{time_str}: aws or ssrs.HRRR issue')
         else:
             for ivar, iname in self.variables.items():
                 try:
@@ -106,10 +106,10 @@ class DataHRRR(BaseGeoData):
                     ids[iname].attrs = tds[list(tds.keys())[0]].attrs
                 except Exception as _:
                     success = False
-                    #self.printit(f' {time_str}-{iname}-problem!')
+                    # self.printit(f' {time_str}-{iname}-problem!')
             ids['time'] = self.time_utc
             ids = ids.expand_dims(dim='time')
-            ids.to_netcdf(self.filepath, engine='netcdf4')
+            ids.to_netcdf(self.filepath, engine='scipy')
         return success
 
     @property
@@ -141,14 +141,14 @@ class DataHRRR(BaseGeoData):
         """Download Function"""
         with open(os.devnull, 'w', encoding='UTF-8') as f:
             time_utc, out_dir = ix
-            #print(lonlat_bnd, domain_dir, proj_crs, resolution)
-            #sys.stdout = f
+            # print(lonlat_bnd, domain_dir, proj_crs, resolution)
+            # sys.stdout = f
             hobj = DataHRRR(
                 time_utc=time_utc,
                 out_dir=out_dir
             )
             hobj.download()
-            #sys.stdout = sys.__stdout__
+            # sys.stdout = sys.__stdout__
         return hobj
 
     @classmethod
@@ -165,9 +165,9 @@ class DataHRRR(BaseGeoData):
         except Exception as _:
             print(f'{fpath.as_posix()}:check-this-day')
         else:
-            #print(f'{day_string}:got-{ds.time.size}-times', flush=True)
+            # print(f'{day_string}:got-{ds.time.size}-times', flush=True)
             for _, iname in DataHRRR.variables.items():
-                #ds[iname] = ds[iname].interpolate_na(dim='time')
+                # ds[iname] = ds[iname].interpolate_na(dim='time')
                 out_dict[iname] = ds[iname].interp(
                     time=xr.DataArray(tlocs, dims=['points']),
                     x=xr.DataArray(xlocs, dims=['points']),

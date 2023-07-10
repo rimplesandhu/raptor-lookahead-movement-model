@@ -40,12 +40,12 @@ if __name__ == "__main__":
     )
     # segment into tracks
     csg.ignore_data_based_on_vertical_speed(max_change=35.)
-    csg.ignore_data_based_on_horizontal_speed(min_speed=0.25)
+    csg.ignore_data_based_on_horizontal_speed(min_speed=1.)
     csg.sort_df(['Group', 'AnimalID', 'TimeUTC'])
     csg.annotate_track_info(
         min_time_interval=10,
         min_time_duration=5 * 60,
-        min_num_points=60,
+        min_num_points=50,
         time_col='TimeLocal'
     )
     csg.partition_into_subdomains(save_domain=True)

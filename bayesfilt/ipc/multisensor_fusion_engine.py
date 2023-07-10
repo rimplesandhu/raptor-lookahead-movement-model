@@ -49,7 +49,7 @@ class MultisensorFusionEngine:
         print(f'Started {at_id} at {np.around(self._cur_time,3)}s')
         self._history_kf[at_id] = deepcopy(self.kf_base)
         self._history_kf[at_id].id = at_id
-        self._history_kf[at_id].initiate_state(self._cur_time, at_mean)
+        self._history_kf[at_id].initiate(t0=self._cur_time, m0=at_mean)
         # if object_lengths is not None:
         #     len_idx = kf_base.state_names.index('Length')
         #     start_state_mean[len_idx] = object_lengths['Vehicle']
@@ -78,7 +78,7 @@ class MultisensorFusionEngine:
                                'FilterNIS'], inplace=True, errors='ignore')
         self._df['Time'] = [start_datetime + datetime.timedelta(
             milliseconds=1000 * ix) for ix in self._df['TimeElapsed']]
-        #self._df.set_index(['ObjectId', 'Time'], inplace=True)
+        # self._df.set_index(['ObjectId', 'Time'], inplace=True)
 
     def _get_short_lived_dead_objects(self):
         """Returns id of objects that are currently dead and have short lived"""
