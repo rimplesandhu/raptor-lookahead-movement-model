@@ -49,21 +49,49 @@ def get_annotated_telemetry_df():
         TELEMETRY_DIR, 'csg_ge_vr.prq_tracks_ca_annotated2')
     df = pd.read_parquet(fpath)
     df['Agl'] = df['Altitude'] - df['GroundElevation']
-    df['HeadingRateRaw'] = df['HeadingRate'].multiply(-1)
-    df['HeadingRate'] = df['HeadingRateRaw'].rolling(
-        3, min_periods=1, center=True).mean().bfill().ffill()
+    df['HeadingRateFd'] = df['Heading'].diff().bfill().ffill()
+    df['AccelerationHor'] = df['VelocityHor'].diff().bfill().ffill()
+    df.loc[df['HeadingRateFd'] < 180, 'HeadingRateFd'] += 360
+    df.loc[df['HeadingRateFd'] > 180, 'HeadingRateFd'] -= 360
+    df.loc[df['HeadingRate'] < 180, 'HeadingRate'] += 360
+    df.loc[df['HeadingRate'] > 180, 'HeadingRate'] -= 360
+    df['HeadingRate'] = df['HeadingRate'].multiply(-1)
     df['HeadingRateAbs'] = df['HeadingRate'].abs()
+    df['HeadingRateFdAbs'] = df['HeadingRateFd'].abs()
     df['WindLateral80mAbs'] = df['WindLateral80m'].abs()
     df['HrateByHspeed'] = df['HeadingRate'].divide(
         df['VelocityHor'].clip(lower=0.5, upper=np.inf))
-    df['VelocityHor_var'] = (df['VelocityX_var'] + df['VelocityY_var']) / 2.
+    df['VelocityHorVar'] = (df['VelocityX_var'] + df['VelocityY_var']) / 2.
+    df['VelocityHorRel'] = df['VelocityHor'] - df['WindSupport80m']
     # df.drop(columns=[ix for ix in df.columns if '_var' in ix], inplace=True)
     # df.drop(columns=[ix for ix in df.columns if '10m' in ix], inplace=True)
     # df.drop(columns=[ix for ix in df.columns if 'OroD' in ix], inplace=True)
     df.columns = [ix.replace('GroundElevation', 'Elev') for ix in df.columns]
     df.columns = [ix.replace('OroUpdraft', 'Oro') for ix in df.columns]
+    df['HeadingRateFdSmooth'] = df['HeadingRateFd'].rolling(
+        7, min_periods=1, center=True).mean().bfill().ffill()
+    df['HeadingRateSmooth'] = df['HeadingRate'].rolling(
+        7, min_periods=1, center=True).mean().bfill().ffill()
+    df['AccnHorSmooth'] = df['AccelerationHor'].rolling(
+        7, min_periods=1, center=True).mean().bfill().ffill()
+    df['AccnHorSmoothAbs'] = df['AccnHorSmooth'].abs()
+
+    variables = {}
+    variables['Pred'] = [
+        'VelocityHor', 'HeadingRate', 'AccelerationVer',
+        'VelocityVer', 'HeadingRateFd', 'AccelerationHor',
+        'HeadingRateFdSmooth', 'HeadingRateSmooth', 'AccnHorSmooth'
+    ]
+    variables['PredNext'] = [f'{ix}Next' for ix in variables['Pred']]
+    for i, ivar in enumerate(variables['Pred']):
+        df[variables['PredNext'][i]] = df[ivar].shift(-1).ffill().bfill()
+    for ilag in time_lags:
+        variables[f'PredLag{ilag}'] = [
+            f'{ix}Lag{ilag}' for ix in variables['Pred']]
+        for ix, iy in zip(variables[f'PredLag{ilag}'], variables['Pred']):
+            df[ix] = df[iy].shift(ilag).ffill().bfill()
     # df = annotate_lookahead_conditions(df, oro_fn=np.mean, elev_fn=np.mean)
-    return df
+    return df, variables
 
 
 def get_short_df(idf, num_samples):
