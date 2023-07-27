@@ -19,10 +19,13 @@ from bayesfilt.telemetry import Data3DEP, DataHRRR, Telemetry, TelemetryPlotter
 warnings.filterwarnings("ignore")
 
 CSG_DIR = os.path.join('/home/rsandhu/projects_car/csg_data')
+CSG_DIR = os.path.join('/Users/rsandhu/Projects/Eagle')
 OUT_DIR = os.path.join(CSG_DIR, 'output')
+OUT_DIR = os.path.join(CSG_DIR)
 TELEMETRY_DIR = os.path.join(OUT_DIR, 'telemetry')
 TRACK_DIR = os.path.join(OUT_DIR, 'tracks')
-BF_CSG_DIR = os.path.join('/home/rsandhu/bayesfilt/examples/csg')
+#BF_CSG_DIR = os.path.join('/home/rsandhu/bayesfilt/examples/csg')
+BF_CSG_DIR = os.path.join('/Users/rsandhu/Modules/bayesfilt/examples/csg')
 FIG_DIR = os.path.join(BF_CSG_DIR, 'figs')
 clrs = ['#377eb8', '#ff7f00', '#4daf4a',
         '#f781bf', '#a65628', '#984ea3',
