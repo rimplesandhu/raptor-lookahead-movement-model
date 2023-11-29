@@ -4,6 +4,7 @@ from copy import deepcopy
 from functools import partial
 import numpy as np
 from numpy import ndarray
+from scipy.special import expit
 from .motion_model import MotionModel
 
 
@@ -27,6 +28,10 @@ class CTRV_POINT(MotionModel):
         # x = self.vec_setter(x, self.nx)
         next_x = deepcopy(x)
         next_x[2] = x[2] + x[4] * self.dt
+        if next_x[2] > np.pi:
+            next_x[2] -= 2.*np.pi
+        if next_x[2] < np.pi:
+            next_x[2] += 2.*np.pi
         next_x[3] = x[3]
         next_x[4] = x[4]
         # if x[3] < 2.:  # low speed
@@ -111,8 +116,11 @@ class CTRA_POINT(MotionModel):
 
     def __init__(self):
         super().__init__(nx=6, name='CTRA_POINT')
-        self.state_names = ['X', 'Y', 'Heading', 'Speed',
-                            'HeadingRate', 'Acceleration']
+        self.state_names = [
+            'PositionX', 'PositionY',
+            'Heading', 'Velocity',
+            'HeadingRate', 'Acceleration'
+        ]
 
     @property
     def phi_names(self):
@@ -121,41 +129,53 @@ class CTRA_POINT(MotionModel):
     def func_f(
         self,
         x: ndarray,
-        u: ndarray | None = None
+        u: ndarray | None = None,
+        dt: ndarray | None = None
     ) -> ndarray:
         """Model dynamics function"""
+        dt = dt if self.dt is None else self.dt
         next_x = np.asarray(deepcopy(x))
         # print(self.phi['min_speed'])
-        if x[3] < 0.2:
+        if x[3] < 2:
             next_x[2] = x[2]
-            next_x[3] = x[3]
+            next_x[3] = expit(5*(x[3]-2))*x[3]
             next_x[4] = 0.
             next_x[5] = 0.
-            next_x[0] = x[0]
-            next_x[1] = x[1]
+            # next_x[0] = x[0]
+            # next_x[1] = x[1]
+            next_x[1] = x[1] + next_x[3] * np.cos(x[2]) * dt
+            next_x[0] = x[0] + next_x[3] * np.sin(x[2]) * dt
         else:
-            next_x[2] = x[2] + x[4] * self.dt
-            next_x[3] = x[3] + x[5] * self.dt
+            # print(x[4], dt)
+            next_x[2] = x[2] + x[4] * dt
+            # if next_x[2] > np.pi:
+            #     next_x[2] -= 2.*np.pi
+            # if next_x[2] <= -np.pi:
+            #     next_x[2] += 2.*np.pi
+            next_x[3] = x[3] + x[5] * dt
             next_x[4] = x[4]
             next_x[5] = x[5]
         # if x[3] < 2.:  # low speed
         #     next_x[3] = 0.
         #     next_x[2] = x[2]
             if np.abs(x[4]) > 0.001:
-                next_x[0] = x[0] + x[3] / x[4] * \
+                next_x[1] = x[1] + x[3] / x[4] * \
                     (np.sin(next_x[2]) - np.sin(x[2]))
-                next_x[1] = x[1] - x[3] / x[4] * \
+                next_x[0] = x[0] - x[3] / x[4] * \
                     (np.cos(next_x[2]) - np.cos(x[2]))
             else:
-                next_x[0] = x[0] + x[3] * np.cos(x[2]) * self.dt
-                next_x[1] = x[1] + x[3] * np.sin(x[2]) * self.dt
+                next_x[1] = x[1] + x[3] * np.cos(x[2]) * dt
+                next_x[0] = x[0] + x[3] * np.sin(x[2]) * dt
         return next_x
 
     def func_Q(
         self,
-        x: ndarray
+        x: ndarray,
+        u: ndarray | None = None,
+        dt: ndarray | None = None
     ) -> ndarray:
         """Get Q matrix"""
+        dt = dt if self.dt is None else self.dt
         ssq = [self.phi['sigma_accn'], self.phi['sigma_omega']]
         ssq = [ix**2 for ix in ssq]
         self._Q = np.zeros((self.nx, self.nx))
@@ -166,12 +186,12 @@ class CTRA_POINT(MotionModel):
         # self._Q[1, 1] = ssq[0] * np.sin(x[2]) ** 2 * self.dt ** 3 / 3.
         # self._Q[1, 3] = 1 * ssq[0] * np.sin(x[2]) * self.dt ** 2 / 2.
         # self._Q[1, 4] = 1 * ssq[1] * x[3] * np.cos(x[2]) * self.dt ** 3 / 6.
-        self._Q[2, 2] = ssq[1] * self.dt ** 3 / 3.
-        self._Q[2, 4] = ssq[1] * self.dt ** 2 / 2.
-        self._Q[3, 3] = ssq[0] * self.dt ** 3 / 3.
-        self._Q[3, 5] = ssq[0] * self.dt ** 2 / 2.
-        self._Q[4, 4] = ssq[1] * self.dt ** 1 / 1.
-        self._Q[5, 5] = ssq[0] * self.dt ** 1 / 1.
+        self._Q[2, 2] = ssq[1] * dt ** 3 / 3.
+        self._Q[2, 4] = ssq[1] * dt ** 2 / 2.
+        self._Q[3, 3] = ssq[0] * dt ** 3 / 3.
+        self._Q[3, 5] = ssq[0] * dt ** 2 / 2.
+        self._Q[4, 4] = ssq[1] * dt ** 1 / 1.
+        self._Q[5, 5] = ssq[0] * dt ** 1 / 1.
         self._Q = self.symmetrize(self.Q)
         return self.Q
 
@@ -181,8 +201,11 @@ class CTRA_RECT(MotionModel):
 
     def __init__(self):
         super().__init__(nx=8, name='CTRA_RECT')
-        self.state_names = ['X', 'Y', 'Heading', 'Speed', 'HeadingRate',
-                            'Acceleration', 'Width', 'Length']
+        self.state_names = [
+            'PositionX', 'PositionY',
+            'Heading', 'Velocity', 'HeadingRate',
+            'Acceleration', 'Width', 'Length'
+        ]
         self._ctra = CTRA_POINT()
 
     @property
@@ -192,30 +215,35 @@ class CTRA_RECT(MotionModel):
     def func_f(
         self,
         x: ndarray,
-        u: ndarray | None = None
+        u: ndarray | None = None,
+        dt: ndarray | None = None
     ) -> ndarray:
         """Model dynamics function"""
+        dt = dt if self.dt is None else self.dt
         next_x = deepcopy(x)
-        next_x[0:6] = self._ctra.func_f(x[0:6])
+        next_x[0:6] = self._ctra.func_f(x[0:6], dt=dt)
         next_x[6] = x[6]
         next_x[7] = x[7]
         return next_x
 
     def func_Q(
         self,
-        x: ndarray
+        x: ndarray,
+        u: ndarray | None = None,
+        dt: ndarray | None = None
     ) -> None:
         """Get Q matrix"""
+        dt = dt if self.dt is None else self.dt
         ssq = [self.phi['sigma_accn'], self.phi['sigma_omega'],
                self.phi['sigma_w'], self.phi['sigma_l']]
         self._ctra.phi = {k: v for k,
                           v in self.phi.items() if k in self._ctra.phi_names}
-        self._ctra.dt = self.dt
+        self._ctra.dt = dt
         ssq = [ix**2 for ix in ssq]
         self._Q = np.eye(self.nx)
-        self._Q[0:6, 0:6] = self._ctra.func_Q(x[0:6])
-        self._Q[7, 7] = ssq[3] * self.dt ** 1 / 1.
-        self._Q[6, 6] = ssq[2] * self.dt ** 1 / 1.
+        self._Q[0:6, 0:6] = self._ctra.func_Q(x[0:6], dt=dt)
+        self._Q[7, 7] = ssq[3] * dt ** 1 / 1.
+        self._Q[6, 6] = ssq[2] * dt ** 1 / 1.
         return self.Q
 
 

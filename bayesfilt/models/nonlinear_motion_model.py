@@ -21,13 +21,16 @@ class NonlinearMotionModel(MotionModel):
     def func_f(
         self,
         x: ndarray,
-        u: ndarray | None
+        u: ndarray | None,
+        dt: ndarray | None
     ) -> ndarray:
         """Model dynamics equation"""
 
     @abstractmethod
     def func_Q(
         self,
-        x: ndarray
+        x: ndarray,
+        u: ndarray | None,
+        dt: ndarray | None
     ) -> ndarray:
         """Error covariance matrix"""

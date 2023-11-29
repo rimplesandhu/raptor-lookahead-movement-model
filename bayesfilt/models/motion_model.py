@@ -24,7 +24,7 @@ class MotionModel(StateSpaceModel):
 
     def __repr__(self):
         out_str = super().__repr__()
-        out_str += f'dt: {self.dt} second\n'
+        out_str += f'Time interval: {self.dt} second\n'
         if self.verbose:
             out_str += f'qbar: {np.array_str(np.array(self.qbar), precision=3)}\n'
             out_str += f'F:\n {np.array_str(np.array(self.F), precision=3)}\n'

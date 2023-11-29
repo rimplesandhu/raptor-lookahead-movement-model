@@ -1,7 +1,12 @@
 """ Commonly used functions """
 import numpy as np
 from numpy import ndarray
+from copy import deepcopy
 # pylint: disable=invalid-name
+
+clrs = ['#377eb8', '#ff7f00', '#4daf4a',
+        '#f781bf', '#a65628', '#984ea3',
+        '#999999', '#e41a1c', '#dede00']
 
 
 def subtract_func(
@@ -20,30 +25,53 @@ def subtract_func(
         # angle_index = self.scaler(angle_index, dtype='int32')
         angle_index = int(angle_index)
         assert angle_index < x1.size, 'Invalid angle index!'
-        xres[angle_index] = np.mod(xres[angle_index], 2.0 * np.pi)
+        # xres[angle_index] = np.mod(xres[angle_index], 2.0 * np.pi)
         if xres[angle_index] > np.pi:
             xres[angle_index] -= 2. * np.pi
+        if xres[angle_index] <= -np.pi:
+            xres[angle_index] += 2. * np.pi
+        # xres[angle_index] = angle_correction(xres[angle_index])
     return xres
+
+
+def angle_correction(iangle):
+    """Correct angles to be between -pi,pi"""
+    new_angle = iangle
+    if iangle > np.pi:
+        new_angle = iangle - 2. * np.pi
+    elif iangle <= -np.pi:
+        new_angle = iangle + 2. * np.pi
+    return new_angle
 
 
 def mean_func(
     list_of_vecs: list[ndarray],
-    list_of_wgts: list[float] | None = None,
+    weights: list[float] | None = None,
     angle_index: int | None = None
 ) -> ndarray:
     """Returns means of vectors with wgts while handling angles"""
     assert isinstance(list_of_vecs, list), 'Need a list of numpy arrays'
-    if list_of_wgts is None:
-        list_of_wgts = [1. / len(list_of_vecs)] * len(list_of_vecs)
-    if len(list_of_vecs) != len(list_of_wgts):
+    if weights is None:
+        weights = [1. / len(list_of_vecs)] * len(list_of_vecs)
+    if len(list_of_vecs) != len(weights):
         raise ValueError('Size mismatch between vecs and wgts!')
-    yvec = sum([iw * iy for iw, iy in zip(list_of_wgts, list_of_vecs)])
+    yvec = sum([iw * iy for iw, iy in zip(weights, list_of_vecs)])
     if angle_index is not None:
         angle_index = int(angle_index)
-        for ivec, iwgt in zip(list_of_vecs, list_of_wgts):
-            sum_sin = np.sum(np.dot(np.sin(ivec[angle_index]), iwgt))
-            sum_cos = np.sum(np.dot(np.cos(ivec[angle_index]), iwgt))
-            yvec[angle_index] = np.arctan2(sum_sin, sum_cos)
+        angles = np.array([ivec[angle_index] for ivec in list_of_vecs])
+        # print(np.degrees(angles))
+        # print(np.sin(angles))
+        # print(np.cos(angles))
+        # print(np.multiply(np.sin(angles), weights))
+        # print(np.multiply(np.cos(angles), weights))
+        # angles = np.vectorize(angle_correction)(angles)
+        # print(np.degrees(angles))
+        # print(np.sin(angles))
+        # print(np.cos(angles))
+        sum_sin = np.dot(np.sin(angles), weights)
+        sum_cos = np.dot(np.cos(angles), weights)
+        yvec[angle_index] = np.arctan2(sum_sin, sum_cos)
+        # print(weights, sum_sin, sum_cos, yvec)
     return yvec
 
 

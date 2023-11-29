@@ -27,6 +27,11 @@ class KalmanFilterBase(FilterAttributesStatic, FilterAttributesDynamic):
         FilterAttributesStatic.__init__(self, *args, **kwargs)
         FilterAttributesDynamic.__init__(self)
 
+    def __repr__(self):
+        """Updated repr function"""
+        istr = super().__repr__()
+        return f'----Kalman Filtering----\n{istr}\n'
+
     def initiate(
         self,
         t0: float | None = None,
@@ -38,6 +43,7 @@ class KalmanFilterBase(FilterAttributesStatic, FilterAttributesDynamic):
             if self.time_elapsed is None:
                 self.raiseit('Need to initiate time')
         else:
+            self._start_time = t0
             self._time_elapsed = t0
             self._last_update_at = t0
         if m0 is None:
@@ -410,6 +416,26 @@ class KalmanFilterBase(FilterAttributesStatic, FilterAttributesDynamic):
     def R(self) -> ndarray:
         """Observation error covariance matrix"""
         return self._R
+
+    @property
+    def get_time_elapsed(self) -> ndarray:
+        """Get time elapsed"""
+        return self.df[self.time_colname].values
+
+    @property
+    def start_time(self) -> ndarray:
+        """Get time elapsed"""
+        return self._start_time
+
+    @property
+    def lifespan_to_last_update(self) -> float:
+        """Returns the time duration of existence till the last update"""
+        return self.last_update_at - self.start_time
+
+    @property
+    def lifespan_to_last_forecast(self) -> float:
+        """Returns the time duration of existence till the last update"""
+        return self.time_elapsed - self.start_time
 
     @m.setter
     def m(self, in_vec: ndarray) -> None:

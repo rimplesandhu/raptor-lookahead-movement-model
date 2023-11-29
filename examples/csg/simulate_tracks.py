@@ -15,180 +15,194 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 from bayesfilt.telemetry.utils import run_loop, add_angles
 from bayesfilt.telemetry import Data3DEP, DataHRRR, Telemetry, TelemetryPlotter
-
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 warnings.filterwarnings("ignore")
 
 CSG_DIR = os.path.join('/home/rsandhu/projects_car/csg_data')
-CSG_DIR = os.path.join('/Users/rsandhu/Projects/Eagle')
+# CSG_DIR = os.path.join('/Users/rsandhu/Projects/Eagle')
 OUT_DIR = os.path.join(CSG_DIR, 'output')
-OUT_DIR = os.path.join(CSG_DIR)
+# OUT_DIR = os.path.join(CSG_DIR)
 TELEMETRY_DIR = os.path.join(OUT_DIR, 'telemetry')
 TRACK_DIR = os.path.join(OUT_DIR, 'tracks')
-#BF_CSG_DIR = os.path.join('/home/rsandhu/bayesfilt/examples/csg')
-BF_CSG_DIR = os.path.join('/Users/rsandhu/Modules/bayesfilt/examples/csg')
+BF_CSG_DIR = os.path.join('/home/rsandhu/bayesfilt/examples/csg')
+# BF_CSG_DIR = os.path.join('/Users/rsandhu/Modules/bayesfilt/examples/csg')
 FIG_DIR = os.path.join(BF_CSG_DIR, 'figs')
 clrs = ['#377eb8', '#ff7f00', '#4daf4a',
         '#f781bf', '#a65628', '#984ea3',
         '#999999', '#e41a1c', '#dede00']
-time_lags = [5, 10, 30, 60, 120]
-dist_dict = {
-    'Fifty': [40, 50, 60],
-    'Onehd': [80, 100, 120],
-    'Twohd': [200, 250, 300],
-    'Fvehd': [400, 500, 600],
-    'Onekm': [800, 1000, 1200],
-    'Twokm': [1600, 2000, 2400],
-}
+# time_lags = [1, 2, 3, 5, 6, 8, 10, 12, 14,
+#              15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
 angle_dict = {
     'L15': -15, 'R15': 15,
     'L30': -30, 'R30': 30,
     'L60': -60, 'R60': 60
 }
-angle_cases = ['Fifty', 'Onehd', 'Twohd']
 
 
-def get_annotated_telemetry_df():
+def save_paper_figure(fig, name='fig_test', w=4.25, h=3.):
+    fig.set_size_inches(w, h)
+    fig.subplots_adjust(left=0.16, bottom=0.16, right=0.95, top=0.95)
+    fig.savefig(os.path.join(FIG_DIR, f'{name.lower()}.png'), dpi=200)
+
+
+def fix_angle(iangle: float):
+    """Fix the angle"""
+    new_angle = deepcopy(iangle)
+    if iangle > 180.:
+        new_angle -= 360
+    elif iangle <= -180:
+        new_angle += 360
+    return new_angle
+
+
+def get_annotated_telemetry_df(lagged: bool = False):
     fpath = os.path.join(
         TELEMETRY_DIR, 'csg_ge_vr.prq_tracks_ca_annotated2')
     df = pd.read_parquet(fpath)
-    df['Agl'] = df['Altitude'] - df['GroundElevation']
-    df['HeadingRateFd'] = df['Heading'].diff().bfill().ffill()
+    df['HeadingRate'] = df['HeadingRate'].multiply(-1).apply(fix_angle)
+    df['HeadingRateFd'] = df['Heading'].diff().bfill().ffill().apply(fix_angle)
     df['AccelerationHor'] = df['VelocityHor'].diff().bfill().ffill()
-    df.loc[df['HeadingRateFd'] < 180, 'HeadingRateFd'] += 360
-    df.loc[df['HeadingRateFd'] > 180, 'HeadingRateFd'] -= 360
-    df.loc[df['HeadingRate'] < 180, 'HeadingRate'] += 360
-    df.loc[df['HeadingRate'] > 180, 'HeadingRate'] -= 360
-    df['HeadingRate'] = df['HeadingRate'].multiply(-1)
+    df['AccelerationVerB'] = df['VelocityVer'].diff().bfill().ffill()
     df['HeadingRateAbs'] = df['HeadingRate'].abs()
     df['HeadingRateFdAbs'] = df['HeadingRateFd'].abs()
     df['WindLateral80mAbs'] = df['WindLateral80m'].abs()
-    df['HrateByHspeed'] = df['HeadingRate'].divide(
-        df['VelocityHor'].clip(lower=0.5, upper=np.inf))
     df['VelocityHorVar'] = (df['VelocityX_var'] + df['VelocityY_var']) / 2.
     df['VelocityHorRel'] = df['VelocityHor'] - df['WindSupport80m']
-    # df.drop(columns=[ix for ix in df.columns if '_var' in ix], inplace=True)
-    # df.drop(columns=[ix for ix in df.columns if '10m' in ix], inplace=True)
-    # df.drop(columns=[ix for ix in df.columns if 'OroD' in ix], inplace=True)
     df.columns = [ix.replace('GroundElevation', 'Elev') for ix in df.columns]
-    df.columns = [ix.replace('OroUpdraft', 'Oro') for ix in df.columns]
     df['HeadingRateFdSmooth'] = df['HeadingRateFd'].rolling(
-        7, min_periods=1, center=True).mean().bfill().ffill()
+        window=10,
+        min_periods=1,
+        center=True
+    ).mean().bfill().ffill()
     df['HeadingRateSmooth'] = df['HeadingRate'].rolling(
-        7, min_periods=1, center=True).mean().bfill().ffill()
-    df['AccnHorSmooth'] = df['AccelerationHor'].rolling(
-        7, min_periods=1, center=True).mean().bfill().ffill()
-    df['AccnHorSmoothAbs'] = df['AccnHorSmooth'].abs()
+        window=10,
+        min_periods=1,
+        center=True
+    ).mean().bfill().ffill()
+    df.drop(
+        columns=[i for i in df.columns if 'ElevD' in i],
+        inplace=True
+    )
+    df.drop(
+        columns=[i for i in df.columns if 'OroD' in i],
+        inplace=True
+    )
+    df.drop(
+        columns=[i for i in df.columns if '10m' in i],
+        inplace=True
+    )
+    df.rename(
+        columns={'AltitudeAgl': 'Agl'},
+        inplace=True
+    )
+    df = annotate_timelagged_variables(
+        idf=df,
+        varnames=[
+            'VelocityHor', 'AccelerationVer',  'AccelerationHor',
+            'VelocityVer', 'AccnHorTangential', 'HeadingRateFdSmooth',
+            'HeadingRateSmooth',  'HeadingRate'  # 'AccnHorSmooth'
+        ],
+        list_of_lags=[5, 10, 20, 30, 45, 60]
+    )
+    df = get_training_df(idf=df, max_lag=60, num_points=int(1e6))
+    df = annotate_lookahead_updrafts(
+        idf=df,
+        list_of_dists=(40, 50, 60, 80, 100, 120, 200, 250, 300)
+    )
+    return df
 
-    variables = {}
-    variables['Pred'] = [
-        'VelocityHor', 'HeadingRate', 'AccelerationVer',
-        'VelocityVer', 'HeadingRateFd', 'AccelerationHor',
-        'HeadingRateFdSmooth', 'HeadingRateSmooth', 'AccnHorSmooth'
-    ]
-    variables['PredNext'] = [f'{ix}Next' for ix in variables['Pred']]
-    for i, ivar in enumerate(variables['Pred']):
-        df[variables['PredNext'][i]] = df[ivar].shift(-1).ffill().bfill()
-    for ilag in time_lags:
-        variables[f'PredLag{ilag}'] = [
-            f'{ix}Lag{ilag}' for ix in variables['Pred']]
-        for ix, iy in zip(variables[f'PredLag{ilag}'], variables['Pred']):
-            df[ix] = df[iy].shift(ilag).ffill().bfill()
-    # df = annotate_lookahead_conditions(df, oro_fn=np.mean, elev_fn=np.mean)
-    return df, variables
+
+def annotate_timelagged_variables(
+    idf,
+    varnames,
+    list_of_lags
+):
+    """Compute lookahead factors"""
+    is_dict = isinstance(idf, dict)
+    if is_dict:
+        idf = pd.DataFrame({k: [v] for k, v in idf.items()})
+    for i, ivar in enumerate(varnames):
+        idf[f'{ivar}Next'] = idf[ivar].shift(-1).ffill().bfill()
+        for ilag in list_of_lags:
+            idf[f'{ivar}Lag{ilag}'] = idf[ivar].shift(ilag).ffill().bfill()
+    if is_dict:
+        idf = idf.to_dict('records')[0]
+    return idf
 
 
-def get_short_df(idf, num_samples):
-    """Get short df for calibration"""
-    # select specific data
-    ibool = (idf['Group'].isin(['pa', 'wy', 'hr']))
-
-    # trim to validate the lag terms
-    ibool = ibool & (idf['TrackTimeElapsed'] > max(time_lags))
-
-    # trim based on agl and elev
+def get_training_df(idf, max_lag, num_points=1000000):
+    """Get data for training the model"""
+    ibool = (idf['Group'].isin(['pa', 'wy']))
+    ibool = ibool & (idf['TrackTimeElapsed'] > max_lag)
     ibool = ibool & (idf['Agl'] < 200) & (idf['Agl'] > -50)
-
-    # # elev diff
-    # rnge = (-400, 400)
-    # for icase in list(dist_dict.keys()):
-    #     icol = f'Elev{icase}Diff'
-    #     ibool = ibool & (idf[icol] > rnge[0]) & (idf[icol] < rnge[1])
-
-    # # oro
-    # rnge = (-10, 10.)
-    # for icase in list(dist_dict.keys()):
-    #     icol = f'OroSmooth{icase}Diff'
-    #     ibool = ibool & (idf[icol] > rnge[0]) & (idf[icol] < rnge[1])
-
-    # oro
-    # rnge = (-1, 6.)
-    # for icase in list(dist_dict.keys()):
-    #     icol = f'OroSmooth{icase}'
-    #     ibool = ibool & (idf[icol] > rnge[0]) & (idf[icol] < rnge[1])
-
-    # trim base don heading rate
-    ibool = ibool & (idf['HeadingRate'] < 30.) & (idf['HeadingRate'] > -30.)
-    ibool = ibool & (idf['HeadingRateNext'] < 30) & (
-        idf['HeadingRateNext'] > -30)
-    lim_val = 30
-    for ilag in time_lags:
-        vname = f'HeadingRateLag{ilag}'
-        ibool = ibool & (idf[vname] < lim_val) & (idf[vname] > -lim_val)
-
-    # # trim base don heading rate
-    # ibool = ibool & (df['HrateByHspeed']<10.) &  (df['HeadingRate']>-10.)
-    # ibool = ibool & (df['HrateByHspeedNext']<10) &  (df['HrateByHspeedNext']>-10)
-    # lim_val = 10
-    # for ilag in time_lags:
-    #     vname = f'HrateByHspeedLag{ilag}'
-    #     ibool = ibool & (df[vname]<lim_val) &  (df[vname]>-lim_val)
-
-    # trim based on hor speed
-    ibool = ibool & (idf['VelocityHor'] < 25.) & (idf['VelocityHor'] > 1.)
-    lim_val = 30
-    for ilag in time_lags:
-        vname = f'VelocityHorLag{ilag}'
-        ibool = ibool & (idf[vname] < lim_val) & (idf[vname] > -lim_val)
-
-    # trim based on hor speed
-    ibool = ibool & (idf['VelocityVer'] < 5.) & (idf['VelocityVer'] > -5)
-    lim_val = 5
-    for ilag in time_lags:
-        vname = f'VelocityVerLag{ilag}'
-        ibool = ibool & (idf[vname] < lim_val) & (idf[vname] > -lim_val)
-
-    # get the training data
+    ibool = ibool & (idf['WindSpeed80m'] > 5.)
+    ibool = ibool & (idf['HeadingRateAbs'] < 20.)
+    ibool = ibool & (idf['HeadingRateFdAbs'] < 20.)
+    ibool = ibool & (idf['VelocityHor'] > 4.)
+    # ibool = ibool & (df['AccnHorSmoothAbs'] < 10.)
     ibool = ibool & (idf.isnull().sum(axis=1) == 0)
+    print(num_points, ' out of ', ibool.sum())
     dfshort = idf[ibool].sample(
-        n=min(num_samples, ibool.sum()-1), axis=0).copy()
-    # print(ibool.sum()*100/df.shape[0], dfshort.shape[0]*100/df.shape[0])
-    # print(ibool.sum(), dfshort.shape[0], df.shape[0])
-    # dfshort['AglLog'] = dfshort['Agl'].add(51).divide(100.).apply(np.log)
-    # cols_to_mod = [
-    #     'WindLateral80m', 'OroSmoothNearL30Diff', 'OroSmoothNearR30Diff',
-    #     'OroSmoothCloseL30Diff', 'OroSmoothCloseR30Diff',
-    # ]
-    # for icol in cols_to_mod:
-    #     dfshort[f'{icol}Mod'] = dfshort[icol]*np.sign(dfshort['HeadingRate'])
+        n=min(int(num_points), ibool.sum()-1),
+        axis=0
+    ).copy()
+    print(ibool.sum()*100/idf.shape[0])
     return dfshort
 
 
-def compute_predictables(idf):
-    """COmpute predictables"""
-    variables = {}
-    variables['Pred'] = ['VelocityHor', 'HeadingRate', 'VelocityVer']
-    # variables['Pred'] = ['VelocityHor', 'HrateByHspeed', 'VelocityVer']
-    # variables['PredChange'] = [f'{ix}Change' for ix in variables['Pred']]
-    variables['PredNext'] = [f'{ix}Next' for ix in variables['Pred']]
-    for i, ivar in enumerate(variables['Pred']):
-        # df[variables['PredChange'][i]] = df[ivar].diff(-1).ffill().bfill()
-        idf[variables['PredNext'][i]] = idf[ivar].shift(-1).ffill().bfill()
-    for ilag in time_lags:
-        variables[f'PredLag{ilag}'] = [
-            f'{ix}Lag{ilag}' for ix in variables['Pred']]
-        for ix, iy in zip(variables[f'PredLag{ilag}'], variables['Pred']):
-            idf[ix] = idf[iy].shift(ilag).ffill().bfill()
-    return idf, variables
+def annotate_lookahead_updrafts(
+    idf,
+    list_of_dists
+):
+    """Compute lookahead factors"""
+    is_dict = isinstance(idf, dict)
+    if is_dict:
+        idf = pd.DataFrame({k: [v] for k, v in idf.items()})
+    istr = 'OroSmooth'
+    for ikey in list_of_dists:
+        ivar = f'{istr}D{ikey}'
+        for iflag, iangle in angle_dict.items():
+            # idf[f'{ivar}{iflag}Diff'] = idf[f'{ivar}{iflag}'] - idf[ivar]
+            diff_vals = idf[f'{ivar}{iflag}'] - idf[ivar]
+            idf[f'{ivar}{iflag}Par'] = diff_vals/ikey/np.radians(iangle)
+            idf.drop(columns=[f'{ivar}{iflag}'], inplace=True)
+        idf.drop(columns=[ivar], inplace=True)
+    if is_dict:
+        idf = idf.to_dict('records')[0]
+    return idf
+
+
+def get_xy_data(idf, xname, yname, nn=9, qq=0.5, quant=0.95):
+    xgrid = np.linspace(*np.quantile(idf[xname], [1 - quant, quant]), 50)
+    rdfshortb = pd.DataFrame({'x': idf[xname], 'y': idf[yname]})
+    rdfshortb['bin_col'] = np.searchsorted(xgrid, idf[xname])
+    bin_groups = rdfshortb.groupby(by='bin_col')
+    if qq > 0:
+        ydata = bin_groups['y'].quantile(qq)[:-1]
+    else:
+        ydata = bin_groups['y'].mean()[:-1]
+    yerr = bin_groups['y'].std()[:-1]
+    ydata = ydata.rolling(
+        nn, min_periods=1, center=True).mean().bfill().ffill()
+    return xgrid, ydata, yerr
+
+
+# def compute_predictables(idf):
+#     """COmpute predictables"""
+#     variables = {}
+#     variables['Pred'] = ['VelocityHor', 'HeadingRate', 'VelocityVer']
+#     # variables['Pred'] = ['VelocityHor', 'HrateByHspeed', 'VelocityVer']
+#     # variables['PredChange'] = [f'{ix}Change' for ix in variables['Pred']]
+#     variables['PredNext'] = [f'{ix}Next' for ix in variables['Pred']]
+#     for i, ivar in enumerate(variables['Pred']):
+#         # df[variables['PredChange'][i]] = df[ivar].diff(-1).ffill().bfill()
+#         idf[variables['PredNext'][i]] = idf[ivar].shift(-1).ffill().bfill()
+#     for ilag in time_lags:
+#         variables[f'PredLag{ilag}'] = [
+#             f'{ix}Lag{ilag}' for ix in variables['Pred']]
+#         for ix, iy in zip(variables[f'PredLag{ilag}'], variables['Pred']):
+#             idf[ix] = idf[iy].shift(ilag).ffill().bfill()
+#     return idf, variables
 
 
 def plot_sim_tracks_in_time(ituple, colnames, savefig=False):
@@ -248,18 +262,12 @@ def plot_sim_tracks_in_space2(
         idx, idf, ids = ituple
     elif len(ituple) == 4:
         idx, idf, ids, list_of_simdf = ituple
-
-    fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.75),
-                           gridspec_kw={'width_ratios': [1.25, 1]})
+    print(idf.Group.unique())
+    fig, ax = plt.subplots(1, 2)
     ax = ax.flatten()
     ax[0].plot(idf['PositionX'].iloc[0],
-               idf['PositionY'].iloc[0], '*g', label='Start')
-    ndf = idf[idf['TrackTimeElapsed'].between(*time_pad)]
-    ax[0].plot(ndf['PositionX'], ndf['PositionY'], '-r',
-               linewidth=2, alpha=0.75,
-               label='Telemetry')
-    ax[0].plot(idf['PositionX'], idf['PositionY'], '-r',
-               linewidth=1, alpha=0.2)
+               idf['PositionY'].iloc[0], '*k',  markersize=10)
+
     etime = idf['TrackTimeElapsed'].values
     angle = np.radians(idf['Heading'].iloc[:10].values)
     hspeed = idf['VelocityHor'].iloc[:10].mean()
@@ -267,13 +275,27 @@ def plot_sim_tracks_in_space2(
     ylocs = idf['PositionY'].iloc[0] + np.mean(np.cos(angle)) * hspeed * etime
     # ax[0].plot(np.mean(xlocs), np.mean(ylocs), 'ok')
     ibool = (etime > time_pad[0]) & (etime < time_pad[1])
-    ax[0].plot(xlocs[ibool], ylocs[ibool], '-k',
-               linewidth=2., alpha=0.75, label='CV')
-    ax[0].plot(xlocs[~ibool], ylocs[~ibool], '-k',
-               linewidth=1., alpha=0.2)
-    ax[0].legend(loc=2, bbox_to_anchor=(0, 1.125), borderaxespad=0.,
-                 ncol=3, columnspacing=1, handletextpad=0.2, handlelength=1.,
-                 frameon=False)
+    ax[0].plot(xlocs[ibool], ylocs[ibool], '-k', color=clrs[5],
+               linewidth=2.5,  label='Constant velocity')
+    ax[0].plot(xlocs[~ibool], ylocs[~ibool], '--k', color=clrs[5],
+               linewidth=1.5, alpha=0.4)
+
+    ndf = idf[idf['TrackTimeElapsed'].between(*time_pad)]
+    ax[0].plot(ndf['PositionX'], ndf['PositionY'], '-r', color=clrs[0],
+               linewidth=2.5,
+               label='Telemetry')
+    ax[0].plot(idf['PositionX'], idf['PositionY'], '--r', color=clrs[0],
+               linewidth=1.5, alpha=0.4)
+    ax[0].legend(loc=2, borderaxespad=0.,
+                 ncol=1, columnspacing=1, handletextpad=0.4, handlelength=1.,
+                 frameon=False, )
+    my_arrow = AnchoredSizeBar(ax[0].transData, 1000., '1 km', 3,
+                               pad=0.1, size_vertical=0.1, frameon=False)
+    ax[0].add_artist(my_arrow)
+    my_arrow = AnchoredSizeBar(ax[1].transData, 1000., '1 km', 3,
+                               pad=0.1, size_vertical=0.1, frameon=False)
+    ax[1].add_artist(my_arrow)
+
     rnge = [[ids.x.min(), ids.x.max()], [ids.y.min(), ids.y.max()]]
     gf_function = partial(
         gaussian_filter,
@@ -304,9 +326,9 @@ def plot_sim_tracks_in_space2(
         X, Y = np.meshgrid(xedges, yedges)
         H = gf_function(H)
         H = H.T / np.amax(H)
-        cm = ax[0].pcolormesh(X, Y, H, cmap='Blues', vmin=0.0, alpha=0.75)
-        fig.colorbar(
-            cm, ax=ax[0], label='Relative collision risk', pad=0.01)
+        cm = ax[0].pcolormesh(X, Y, H, cmap='Reds', vmin=0.0, alpha=0.5)
+        fig.colorbar(cm, ax=ax[0], label='Collision risk map',
+                     pad=0.01, fraction=0.05, shrink=0.9)
 
     # cm = ax[0].scatter(
     #     ndf['PositionX'],
@@ -328,19 +350,28 @@ def plot_sim_tracks_in_space2(
         vmin=0,
         vmax=2.
     )
-    _ = fig.colorbar(cm, ax=ax[1], label='Orographic Updraft [m/s]', pad=0.01)
+    _ = fig.colorbar(
+        cm, ax=ax[1], label=r'Orographic Updraft, $w_o$ [m/s]',
+        pad=0.01, fraction=0.05, shrink=0.9)
     ax[1].plot(idf['PositionX'].iloc[0],
-               idf['PositionY'].iloc[0], '*g', label='Start')
+               idf['PositionY'].iloc[0], '*k', markersize=10)
 
     for iax in ax:
-        iax.axis('off')
+        iax.set_xticks([])
+        iax.set_yticks([])
+        iax.spines['top'].set_visible(False)
+        iax.spines['right'].set_visible(False)
+        iax.spines['bottom'].set_visible(False)
+        iax.spines['left'].set_visible(False)
         iax.set_aspect('equal')
         iax.set_xlim([ids.x.mean() - zoom, ids.x.mean() + zoom])
         iax.set_ylim([ids.y.mean() - zoom, ids.y.mean() + zoom])
-    fig.tight_layout()
+        iax.set_xlabel('Easting [m]')
+        iax.set_ylabel('Northing [m]')
+
+    # fig.tight_layout()
     if savefig:
-        plt.savefig(os.path.join(
-            FIG_DIR, f'fig_{str(idx)}.png'), bbox_inches='tight')
+        plt.savefig(os.path.join(FIG_DIR, f'fig_{str(idx)}.png'))
     return fig, ax
 
 
@@ -402,7 +433,8 @@ def plot_sim_tracks_in_space(ituple, max_agl=10000, time_pad=1, savefig=False):
         H = gf_function(H)
         H = H.T / np.amax(H)
         cm = ax[1].pcolormesh(X, Y, H, cmap='Reds', vmin=0.0)
-        fig.colorbar(cm, ax=ax[1], label='Relative collision risk [m/s]')
+        fig.colorbar(cm, ax=ax[1], label='Relative collision risk [m/s]',
+                     pad=0.01, fraction=0.05, shrink=0.9)
 
     _ = ax[1].scatter(
         idf['PositionX'],
@@ -421,7 +453,8 @@ def plot_sim_tracks_in_space(ituple, max_agl=10000, time_pad=1, savefig=False):
         cmap='viridis',
         alpha=0.5
     )
-    _ = fig.colorbar(cm, ax=ax[2], label='Orographic Updraft [m/s]')
+    _ = fig.colorbar(cm, ax=ax[2], label='Orographic Updraft [m/s]',
+                     pad=0.01, fraction=0.05, shrink=0.9)
     for iax in ax:
         iax.axis('off')
         iax.set_aspect('equal')
@@ -525,48 +558,6 @@ def annotate_env_conditions(
                         y=yloc,
                         method='nearest'
                     ).item()
-    return idf
-
-
-def annotate_lookahead_conditions(
-    idf,
-    oro_fn,
-    elev_fn
-):
-    """Process lookahead conditions"""
-    is_dict = isinstance(idf, dict)
-    if is_dict:
-        idf = pd.DataFrame({k: [v] for k, v in idf.items()})
-    for ikey, ival in dist_dict.items():
-        for istr, ifn in zip(['OroSmooth', 'Elev'], [oro_fn, elev_fn]):
-            in_cols = [f'{istr}D{str(ix)}' for ix in ival]
-            out_col = f'{istr}{ikey}'
-            # print(out_col, in_cols)
-            idf[out_col] = ifn(idf[in_cols].values, axis=1)
-            idf[f'{out_col}Diff'] = idf[out_col] - idf[istr]
-            idf.drop(columns=in_cols, inplace=True)
-            if ikey in angle_cases:
-                for iflag, _ in angle_dict.items():
-                    in_cols = [f'{istr}D{str(ix)}{iflag}' for ix in ival]
-                    out_col = f'{istr}{ikey}{iflag}'
-                    # print(out_col, in_cols)
-                    ixx = idf[in_cols].replace(np.inf, np.nan)
-                    ixx = ixx.bfill().ffill().values
-                    idf[out_col] = ifn(ixx, axis=1)
-                    idf[f'{out_col}Diff'] = idf[out_col] - idf[f'{istr}{ikey}']
-                    # idf[f'{out_col}Diff'] = idf[out_col] - idf[f'{istr}']
-                    idf.drop(columns=[out_col], inplace=True)
-                    idf.drop(columns=in_cols, inplace=True)
-    idf.drop(
-        columns=[ix for ix in idf.columns if 'ElevD' in ix],
-        inplace=True
-    )
-    # idf.drop(
-    #     columns=[ix for ix in idf.columns if 'OroSmoothD' in ix],
-    #     inplace=True
-    # )
-    if is_dict:
-        idf = idf.to_dict('records')[0]
     return idf
 
 
@@ -811,3 +802,78 @@ if __name__ == "__main__":
     #             self.df[angle_col])) * self.df[speed_col]
     #         self.df[f'WindLateral{istr}'] = np.sin(np.radians(
     #             self.df[angle_col])) * self.df[speed_col]
+
+# def get_short_df(idf, num_samples):
+#     """Get short df for calibration"""
+#     # select specific data
+#     ibool = (idf['Group'].isin(['pa', 'wy', 'hr']))
+
+#     # trim to validate the lag terms
+#     ibool = ibool & (idf['TrackTimeElapsed'] > max(time_lags))
+
+#     # trim based on agl and elev
+#     ibool = ibool & (idf['Agl'] < 200) & (idf['Agl'] > -50)
+
+#     # # elev diff
+#     # rnge = (-400, 400)
+#     # for icase in list(dist_dict.keys()):
+#     #     icol = f'Elev{icase}Diff'
+#     #     ibool = ibool & (idf[icol] > rnge[0]) & (idf[icol] < rnge[1])
+
+#     # # oro
+#     # rnge = (-10, 10.)
+#     # for icase in list(dist_dict.keys()):
+#     #     icol = f'OroSmooth{icase}Diff'
+#     #     ibool = ibool & (idf[icol] > rnge[0]) & (idf[icol] < rnge[1])
+
+#     # oro
+#     # rnge = (-1, 6.)
+#     # for icase in list(dist_dict.keys()):
+#     #     icol = f'OroSmooth{icase}'
+#     #     ibool = ibool & (idf[icol] > rnge[0]) & (idf[icol] < rnge[1])
+
+#     # trim base don heading rate
+#     ibool = ibool & (idf['HeadingRate'] < 30.) & (idf['HeadingRate'] > -30.)
+#     ibool = ibool & (idf['HeadingRateNext'] < 30) & (
+#         idf['HeadingRateNext'] > -30)
+#     lim_val = 30
+#     for ilag in time_lags:
+#         vname = f'HeadingRateLag{ilag}'
+#         ibool = ibool & (idf[vname] < lim_val) & (idf[vname] > -lim_val)
+
+#     # # trim base don heading rate
+#     # ibool = ibool & (df['HrateByHspeed']<10.) &  (df['HeadingRate']>-10.)
+#     # ibool = ibool & (df['HrateByHspeedNext']<10) &  (df['HrateByHspeedNext']>-10)
+#     # lim_val = 10
+#     # for ilag in time_lags:
+#     #     vname = f'HrateByHspeedLag{ilag}'
+#     #     ibool = ibool & (df[vname]<lim_val) &  (df[vname]>-lim_val)
+
+#     # trim based on hor speed
+#     ibool = ibool & (idf['VelocityHor'] < 25.) & (idf['VelocityHor'] > 1.)
+#     lim_val = 30
+#     for ilag in time_lags:
+#         vname = f'VelocityHorLag{ilag}'
+#         ibool = ibool & (idf[vname] < lim_val) & (idf[vname] > -lim_val)
+
+#     # trim based on hor speed
+#     ibool = ibool & (idf['VelocityVer'] < 5.) & (idf['VelocityVer'] > -5)
+#     lim_val = 5
+#     for ilag in time_lags:
+#         vname = f'VelocityVerLag{ilag}'
+#         ibool = ibool & (idf[vname] < lim_val) & (idf[vname] > -lim_val)
+
+#     # get the training data
+#     ibool = ibool & (idf.isnull().sum(axis=1) == 0)
+#     dfshort = idf[ibool].sample(
+#         n=min(num_samples, ibool.sum()-1), axis=0).copy()
+#     # print(ibool.sum()*100/df.shape[0], dfshort.shape[0]*100/df.shape[0])
+#     # print(ibool.sum(), dfshort.shape[0], df.shape[0])
+#     # dfshort['AglLog'] = dfshort['Agl'].add(51).divide(100.).apply(np.log)
+#     # cols_to_mod = [
+#     #     'WindLateral80m', 'OroSmoothNearL30Diff', 'OroSmoothNearR30Diff',
+#     #     'OroSmoothCloseL30Diff', 'OroSmoothCloseR30Diff',
+#     # ]
+#     # for icol in cols_to_mod:
+#     #     dfshort[f'{icol}Mod'] = dfshort[icol]*np.sign(dfshort['HeadingRate'])
+#     return dfshort

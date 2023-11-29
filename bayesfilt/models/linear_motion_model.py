@@ -168,6 +168,44 @@ class ConstantAcceleration(LinearMotionModel):
                     * 3] = self._ca1d.Q.copy()
 
 
+class CV2DRW2D(LinearMotionModel):
+    """Class for defining constant accn model in 2d of a 2D object """
+
+    def __init__(self):
+        super().__init__(nx=6, name='CV2D_Shape2D')
+        self._motion = ConstantVelocity(dof=2)
+        self._shape = RandomWalk(nx=2)
+        self._state_names = [
+            'PositionX', 'VelocityX',
+            'PositionY', 'VelocityY',
+            'Length', 'Width'
+        ]
+
+    @property
+    def phi_names(self):
+        """Parameter names"""
+        return ['sigma_vx', 'sigma_vy', 'sigma_w', 'sigma_l']
+
+    def update_matrices(self) -> None:
+        """ Computes updated model matrices """
+        self.check_ready_to_deploy()
+        # motion model
+        self._motion.dt = self.dt
+        self._motion.phi['sigmas'] = [
+            self.phi['sigma_vx'], self.phi['sigma_vy']]
+        self._motion.update_matrices()
+        # shape model
+        self._shape.dt = self.dt
+        self._shape.phi['sigmas'] = [self.phi['sigma_w'], self.phi['sigma_l']]
+        self._shape.update_matrices()
+
+        upper_zeromat = np.zeros((self._motion.nx, self._shape.nx))
+        self._F = np.block([[self._motion.F.copy(), upper_zeromat],
+                            [upper_zeromat.T, self._shape.F.copy()]])
+        self._Q = np.block([[self._motion.Q.copy(), upper_zeromat],
+                            [upper_zeromat.T, self._shape.Q.copy()]])
+
+
 class CA2DRW2D(LinearMotionModel):
     """Class for defining constant accn model in 2d of a 2D object """
 

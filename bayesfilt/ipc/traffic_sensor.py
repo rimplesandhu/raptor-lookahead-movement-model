@@ -25,9 +25,9 @@ class TrafficSensor:
 
         self.name = sensor_name
         self.om = observation_model
-        self.time_col = 'Time'
-        self.x_col = 'X'
-        self.y_col = 'Y'
+        self.time_col = 'TimeLocal'
+        self.x_col = 'PositionX'
+        self.y_col = 'PositionY'
         self.width_col = 'Width'
         self.length_col = 'Length'
         self.heading_col = 'Heading'
@@ -42,7 +42,7 @@ class TrafficSensor:
         self.states = list(self.df.columns)
         assert self.x_col in self.states, f'Need {self.x_col} in data_df!'
         assert self.y_col in self.states, f'Need {self.y_col} in data_df!'
-        #self._df.set_index(pd.to_datetime(time_series), inplace=True)
+        # self._df.set_index(pd.to_datetime(time_series), inplace=True)
         self._df.sort_index(inplace=True)
         float64_cols = list(self.df.select_dtypes(include='float64'))
         self._df[float64_cols] = self.df[float64_cols].astype('float32')

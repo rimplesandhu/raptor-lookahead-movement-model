@@ -11,25 +11,21 @@ class LinearObservationModel(ObservationModel):
 
     def __init__(
         self,
-        nx: int,
         observed_state_inds: List[int],
-        name: str = 'LinearObservationModel',
-        verbose: bool = False
+        **kwargs
     ) -> None:
 
         # initiate
         self._observed_state_inds = list(set(observed_state_inds))
         super().__init__(
-            nx=nx,
             ny=len(observed_state_inds),
-            name=name,
-            verbose=verbose
+            **kwargs
         )
-        if max(self.observed_state_inds) >= nx:
-            self.raiseit(f'Max state index > {nx-1}')
-        if len(self.observed_state_inds) > nx:
+        if max(self.observed_state_inds) >= self.nx:
+            self.raiseit(f'Max state index > {self.nx-1}')
+        if len(self.observed_state_inds) > self.nx:
             self.raiseit(f'# of observed states > {nx}')
-        self._H: ndarray = np.zeros((self._ny, self._nx))  # obs function
+        self._H: ndarray = np.zeros((self.ny, self.nx))  # obs function
         for k, v in enumerate(self.observed_state_inds):
             self._H[int(k), int(v)] = 1.
         self._J = np.eye(self.ny)

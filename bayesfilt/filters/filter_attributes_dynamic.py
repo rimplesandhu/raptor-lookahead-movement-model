@@ -17,6 +17,7 @@ class FilterAttributesDynamic:
     _m: ndarray | None = None
     _P: ndarray | None = None
     _R: ndarray | None = None
+    _start_time: float | None = None
     _time_elapsed: float | None = None
     _last_update_at: float | None = None
     cur_metrics: dict[str, float] = field(default_factory=dict, repr=True)
@@ -49,11 +50,11 @@ class FilterAttributesDynamic:
 
     def store_this_timestep(self, update: bool = False) -> None:
         """Store this forecast/update step"""
-        #self._time_elapsed = np.around(self.time_elapsed, 3)
+        # self._time_elapsed = np.around(self.time_elapsed, 3)
         if update is True:
             for _, v in self._dfraw.items():
                 del v[-1]
-            self._last_update_at = self._time_elapsed
+            self._last_update_at = deepcopy(self._time_elapsed)
         self._add_new_entry()
 
     @property
@@ -95,11 +96,6 @@ class FilterAttributesDynamic:
     def raiseit(self, outstr: str = "") -> None:
         """Raise exception with the out string"""
         raise ValueError(f'{self.__class__.__name__}: {outstr}')
-
-    @property
-    def lifespan_to_last_update(self):
-        """Returns the time duration of existence till the last update"""
-        return self.last_update_at - self._dfraw[self.time_colname].iloc[0]
 
     @property
     def tlist(self) -> ndarray:

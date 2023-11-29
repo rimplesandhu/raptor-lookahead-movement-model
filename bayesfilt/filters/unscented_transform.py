@@ -31,8 +31,11 @@ class UnscentedTransform(SigmaPoints):
     ) -> tuple[ndarray, ndarray, ndarray]:
         """Mean and covariance resulting from the unscented Transform"""
         x_spts = self.get_sigma_points(m, P)
+        # print([np.degrees(ix) for ix in x_spts])
         y_spts = [np.atleast_1d(self.model_fun(ix)) for ix in x_spts]
+        # print([np.degrees(ix) for ix in y_spts])
         y_mvec = self.fun_mean_out(y_spts, weights=self.wm)
+        # print(np.degrees(y_mvec))
         x_res = [self.fun_subtract_in(ix, m) for ix in x_spts]
         y_res = [self.fun_subtract_out(iy, y_mvec) for iy in y_spts]
         Pyy = sum([iw * np.outer(iy, iy) for iy, iw in zip(y_res, self.wc)])
