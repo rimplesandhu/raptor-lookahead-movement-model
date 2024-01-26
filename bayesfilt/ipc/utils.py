@@ -9,11 +9,12 @@ import datetime
 from numpy import ndarray
 import numpy as np
 import pandas as pd
+import pathos.multiprocessing as mp
 import cv2
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib import patches
-from bayesfilt.telemetry.utils import run_loop
 
 cb_clrs = ['#377eb8', '#ff7f00', '#4daf4a',
            '#f781bf', '#a65628', '#984ea3',
@@ -39,6 +40,25 @@ cb_clrs = ['#377eb8', '#ff7f00', '#4daf4a',
 #     Xval_new = Xval * np.cos(angle_rad) - Yval * np.sin(angle_rad)
 #     Yval_new = Xval * np.sin(angle_rad) + Yval * np.cos(angle_rad)
 #     return Xval_new, Yval_new
+
+def run_loop(func, input_list, ncores=mp.cpu_count(), **kwargs):
+    """Run parallel simulation"""
+    pbar = tqdm(
+        iterable=input_list,
+        total=len(input_list),
+        position=0,
+        leave=True,
+        file=sys.stdout,
+        **kwargs
+    )
+    if ncores <= 1:
+        results = []
+        for ix in pbar:
+            results.append(func(ix))
+    else:
+        with mp.Pool(ncores) as pool:
+            results = list(pool.imap(func, pbar))
+    return results
 
 
 def change_angle(in_angle):
@@ -121,7 +141,7 @@ def create_frames(
     list_of_fc=[],
 ):
     """Create animation from a list of dataframes"""
-    istr = f'{round(list_of_etimes[0],3)}-{round(list_of_etimes[-1],3)}'
+    istr = f'{round(list_of_etimes[0], 3)}-{round(list_of_etimes[-1], 3)}'
     if verbose:
         print(f'Creating frames {istr}..')
     filelist = glob.glob(os.path.join(image_dir, "*.png"))

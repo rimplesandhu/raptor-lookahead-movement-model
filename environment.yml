@@ -1,0 +1,16 @@
+name: /home/rsandhu/.conda-envs/bfilt_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - pathos
+  - numpy
+  - scipy
+  - python[version='>3.12*']
+  - matplotlib
+  - tqdm
+  - pandas
+  - ipykernel
+  - pyarrow
+  - shapely
+  - opencv

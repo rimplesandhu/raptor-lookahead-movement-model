@@ -14,7 +14,7 @@ from tqdm import tqdm
 import pandas as pd
 import pathos.multiprocessing as mp
 import matplotlib.pyplot as plt
-import rasterio
+# import rasterio
 
 
 def add_angles(angle1, angle2):

@@ -1,7 +1,6 @@
 """Base class for defining state space models"""
 # pylint: disable=invalid-name
 from abc import ABC, abstractmethod
-from typing import Dict, List
 import numpy as np
 from numpy import ndarray
 
@@ -35,7 +34,7 @@ class StateSpaceModel(ABC):
         """Child class must define the names of static parameters"""
 
     @property
-    def phi(self) -> Dict[str, float]:
+    def phi(self) -> dict[str, float]:
         """Getter for model parameter vector w"""
         return self._phi
 
@@ -51,7 +50,7 @@ class StateSpaceModel(ABC):
                 self._phi[k] = v
 
     @property
-    def state_names(self) -> List[str]:
+    def state_names(self) -> list[str]:
         """Getter for state names"""
         return self._state_names
 
@@ -82,7 +81,7 @@ class StateSpaceModel(ABC):
     def matrix(
         self,
         in_mat: ndarray,
-        shape: List[int] | None = None,
+        shape: list[int] | None = None,
         dtype: str = 'float64'
     ) -> ndarray:
         """Returns a valid numpy array while checking for its shape"""
@@ -102,7 +101,7 @@ class StateSpaceModel(ABC):
             self.raiseit(f'Need scalar!, change {in_val} to scalar')
         return in_val.item()
 
-    def valid_list(self, in_list, length) -> List:
+    def valid_list(self, in_list, length) -> list:
         """Return a valid list"""
         assert isinstance(in_list, list), self.raiseit('Need a list')
         if len(in_list) != length:
