@@ -35,7 +35,7 @@ class FilterAttributesDynamic:
 
     def _add_new_entry(self):
         new_entry = {
-            self.time_colname: np.around(self.time_elapsed, 4),
+            self.time_colname: self.time_elapsed,
             self.y_colname: deepcopy(self.y),
             self.mean_colname: deepcopy(self.m),
             self.cov_colname: deepcopy(self.P),
@@ -52,8 +52,8 @@ class FilterAttributesDynamic:
         """Store this forecast/update step"""
         # self._time_elapsed = np.around(self.time_elapsed, 3)
         if update is True:
-            for _, v in self._dfraw.items():
-                del v[-1]
+            # for _, v in self._dfraw.items():
+            #     del v[-1]
             self._last_update_at = deepcopy(self._time_elapsed)
         self._add_new_entry()
 

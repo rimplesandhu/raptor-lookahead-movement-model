@@ -1,6 +1,7 @@
 """Usefull functions for multisensor fusion engine"""
 # pylint: disable=invalid-name
 import glob
+import sys
 from typing import Optional, Union, Dict, List
 from pathlib import Path
 import os
@@ -73,25 +74,37 @@ def get_frame_fname(ix):
     return f'frame.{str(ix).zfill(6)}.png'
 
 
-def create_video_from_images(
+def create_video_from_frames(
     image_dir: str,
     fps: int,
-    filename: str = 'output.avi'
+    filename: str = 'output.avi',
+    delete_images_after: bool = False
 ):
-    """Creates/saves video from images"""
+    """Creates/saves video from images saved as png files"""
     # print(image_dir, filename)
+    # get the images
     images = [img for img in os.listdir(image_dir) if img.endswith(".png")]
+    print(f'Creating video using {len(images)} frames at {fps} FPS..',
+          end="", flush=True)
     images.sort()
     frame = cv2.imread(os.path.join(image_dir, images[0]))
+
+    # get the size of frame
     height, width, layers = frame.shape
     fncc = cv2.VideoWriter_fourcc(*'MJPG')
     video = cv2.VideoWriter(os.path.join(
         image_dir, filename), fncc, fps, (width, height))
+
+    # add images to video
     for image in images:
         video.write(cv2.imread(os.path.join(image_dir, image)))
-        os.remove(os.path.join(image_dir, image))
+        if delete_images_after:
+            os.remove(os.path.join(image_dir, image))
+
+    # finish and wrap up
     cv2.destroyAllWindows()
     video.release()
+    print('done')
 
 
 def initialize_traffic_plot(
@@ -132,13 +145,13 @@ def merge_frames(dir1, dir2, out_dir):
 
 
 def create_frames(
-    list_of_dfs: list[pd.DataFrame],
+    dict_of_dfs: list[pd.DataFrame],
     list_of_etimes: list[float],
     image_dir: str,
     init_fn: callable,
+    dict_of_clrs: list[str],
     verbose=False,
     ncores=36,
-    list_of_fc=[],
 ):
     """Create animation from a list of dataframes"""
     istr = f'{round(list_of_etimes[0], 3)}-{round(list_of_etimes[-1], 3)}'
@@ -147,9 +160,11 @@ def create_frames(
     filelist = glob.glob(os.path.join(image_dir, "*.png"))
     _ = [os.remove(f) for f in filelist]
     time_res = list_of_etimes[1] - list_of_etimes[0]
-    list_of_tuple = [(ix, iy, None, None)
+    list_of_tuple = [(ix, iy, None, None, None)
                      for ix, iy in enumerate(list_of_etimes)]
-    for i, idf in enumerate(list_of_dfs):
+    for i, (ikey, idf) in enumerate(dict_of_dfs.items()):
+        # print(i, ikey, '-------')
+        width = idf['Width'] if 'Width' in idf.columns else None
         frame_fn = partial(
             draw_frame,
             tlocs=idf['TimeElapsed'].values,
@@ -160,10 +175,10 @@ def create_frames(
             time_pad=time_res/2.,
             case_dir=image_dir,
             initialize_fn=init_fn,
-            widths=idf['Width'],
+            widths=width,
             lengths=idf['Length'],
-            ec='none',
-            fc=list_of_fc[i],
+            ec=dict_of_clrs[ikey],
+            fc='none',
         )
         if verbose:
             results = run_loop(
@@ -183,6 +198,7 @@ def create_frames(
             )
 
         list_of_tuple = results.copy()
+    return list_of_tuple
 
 
 def draw_frame(
@@ -201,14 +217,16 @@ def draw_frame(
     **kwargs
 ):
     # print(f'{ix}-', end="", flush=True)
+    # print(time_pad)
     Path(case_dir).mkdir(parents=True, exist_ok=True)
-    frame_id, at_time, fig, ax = frame_tuple
+    frame_id, at_time, fig, ax, fpath = frame_tuple
+    # print(at_time, time_pad)
     ibool = (tlocs > (at_time - time_pad)) & (tlocs < (at_time + time_pad))
     if fig is None:
         fig, ax = initialize_fn()
     widths = np.ones_like(xlocs)*2.5 if widths is None else widths
     lengths = np.ones_like(xlocs)*5 if lengths is None else lengths
-    ids = np.ones_like(xlocs, dtype=int)*0 if ids is None else ids
+    # ids = np.ones_like(xlocs, dtype=int)*0 if ids is None else ids
     alphas = np.ones_like(xlocs)*0.75 if alphas is None else alphas
     jdf = pd.DataFrame({
         'ObjectId': ids[ibool],
@@ -220,6 +238,7 @@ def draw_frame(
         'Alpha': alphas[ibool]
     })
     jdf.drop_duplicates(['ObjectId'], keep='last', inplace=True)
+    # print(jdf)
     for _, irow in jdf.iterrows():
         centroid = (irow['PositionX'], irow['PositionY'])
         rot_transform = ax.transData
@@ -228,7 +247,7 @@ def draw_frame(
             centroid[1] - irow['Length'] / 2.
         )
         # angle = (irow['Heading'] + 90.) % (360.)
-        angle = -irow['Heading']
+        angle = 180.  # irow['Heading']
         rot_transform = mpl.transforms.Affine2D().rotate_deg_around(
             centroid[0],
             centroid[1],
@@ -255,10 +274,10 @@ def draw_frame(
         )
     Path(case_dir).mkdir(parents=True, exist_ok=True)
     fname = get_frame_fname(frame_id)
-    fig.savefig(os.path.join(case_dir, fname),
-                dpi=160, bbox_inches='tight')
+    fpath = os.path.join(case_dir, fname)
+    fig.savefig(fpath, dpi=160, bbox_inches='tight')
     plt.close()
-    return (frame_id, at_time, fig, ax)
+    return (frame_id, at_time, fig, ax, fpath)
 
 
 def add_colored_legend(ax, idict):
@@ -281,6 +300,18 @@ def get_list_of_times(min_time, max_time, time_res_ms, this_date: str = None):
     list_of_times = [start_time + idelta for idelta in list_of_tdeltas]
     return list_of_times
 
+
+def fig_init_fn_csprings(close_fig: bool = False):
+    fig, ax = initialize_traffic_plot(
+        left_str='Colorado Springs\nPalmer Park & N Powers',
+        right_str='Aug 28, 2023'
+    )
+    ax.set_xlim([-100, 80])
+    ax.set_ylim([-80, 100])
+    ax.set_aspect('equal')
+    if close_fig:
+        plt.close(fig)
+    return fig, ax
 
 # def box_function(irow, rot_start, box_fill: bool = True, box_color='r'):
 #     iangle = (irow['Heading'] + np.pi / 2) % (2.0 * np.pi)

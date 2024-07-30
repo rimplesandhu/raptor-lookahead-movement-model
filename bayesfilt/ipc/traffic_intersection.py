@@ -20,10 +20,12 @@ class TrafficIntersection:
 
     def __init__(
         self,
-        extent: Tuple[float, float, float, float]
+        center_lonlat: Tuple[float, float],
+        extent_meters: Tuple[float, float, float, float]
     ) -> None:
 
-        self.extent = extent  # (xmin, xmax, ymin, ymax)
+        self.extent = extent_meters  # (xmin, xmax, ymin, ymax)
+        self.center_lonlat = center_lonlat
         self.object_cname = 'Object'
         self.type_name = 'Type'
         self.heading_name = 'Heading'
@@ -146,11 +148,11 @@ class TrafficIntersection:
             print(f"Centroid: {zone.centroid}")
             print(f"Area: {zone.area}")
             print(f"Bounding Box: {zone.bounds}")
-            print(f"Exterior Length: {round(zone.exterior.length,4)}")
+            print(f"Exterior Length: {round(zone.exterior.length, 4)}")
 
     def plot_this_zone(self, axs, iname: str, *args, **kwargs) -> None:
         """Plots this zones on the given axis"""
-        self.check_zone_name(iname)
+        self.check_zone(iname)
         izone = self.df.loc[iname, self.object_cname]
         if izone.geom_type == 'Point':
             print(izone.x, izone.y)
@@ -163,7 +165,7 @@ class TrafficIntersection:
 
     def plot_this_type(self, axs, itype: str, *args, **kwargs) -> None:
         """Plots this type of zones on the given axis"""
-        self.check_zone(itype)
+        self.check_zonetype(itype)
         for izone in self._df.loc[self.df[self.type_name] == itype, self.object_cname]:
             if izone.geom_type == 'Point':
                 axs.plot(izone.x, izone.y, *args, **kwargs)
@@ -187,13 +189,13 @@ class TrafficIntersection:
         bool_list = [this_zone.contains(ix) for ix in list_of_points]
         return np.array(bool_list)
 
-    def within_this_zone(self, zone, xlocs, ylocs) -> None:
-        """Check if point is within this zone"""
-        self.check_zone(zone)
-        out_bool = False
-        for izone in self.df.loc[self.df[self.type_name] == zone].index.tolist():
-            out_bool = out_bool | self.within_this_zone(izone, xlocs, ylocs)
-        return out_bool
+    # def within_this_zone(self, zone, xlocs, ylocs) -> None:
+    #     """Check if point is within this zone"""
+    #     self.check_zone(zone)
+    #     out_bool = False
+    #     for izone in self.df.loc[self.df[self.type_name] == zone].index.tolist():
+    #         out_bool = out_bool | self.within_this_zone(izone, xlocs, ylocs)
+    #     return out_bool
 
     def get_zonetype(self, zone: str):
         """Returns shapley object of this type of zone"""

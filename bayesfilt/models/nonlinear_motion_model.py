@@ -21,8 +21,8 @@ class NonlinearMotionModel(MotionModel):
     def func_f(
         self,
         x: ndarray,
-        u: ndarray | None,
-        dt: ndarray | None
+        dt: float,
+        u: ndarray,
     ) -> ndarray:
         """Model dynamics equation"""
 
@@ -30,7 +30,7 @@ class NonlinearMotionModel(MotionModel):
     def func_Q(
         self,
         x: ndarray,
-        u: ndarray | None,
-        dt: ndarray | None
+        dt: float,
+        u: ndarray,
     ) -> ndarray:
         """Error covariance matrix"""

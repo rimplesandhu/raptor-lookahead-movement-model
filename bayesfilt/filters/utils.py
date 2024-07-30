@@ -12,13 +12,15 @@ clrs = ['#377eb8', '#ff7f00', '#4daf4a',
 def subtract_func(
     x1: ndarray,
     x2: ndarray,
-    angle_index: int | None = None
+    angle_index: int | None = None,
+    radians: bool = False
 ) -> ndarray:
     """Subtract two vectors that include angle"""
     # x0 = self.matrix(x0, self.nx)
     # x1 = self.matrix(x1, self.nx)
     x1 = np.asarray(x1)
     x2 = np.asarray(x2)
+    ival = np.pi if radians else 180.
     assert x1.size == x2.size, 'Shape mismatch!'
     xres = np.subtract(x1, x2)
     if angle_index is not None:
@@ -26,10 +28,10 @@ def subtract_func(
         angle_index = int(angle_index)
         assert angle_index < x1.size, 'Invalid angle index!'
         # xres[angle_index] = np.mod(xres[angle_index], 2.0 * np.pi)
-        if xres[angle_index] > np.pi:
-            xres[angle_index] -= 2. * np.pi
-        if xres[angle_index] <= -np.pi:
-            xres[angle_index] += 2. * np.pi
+        if xres[angle_index] > ival:
+            xres[angle_index] -= 2. * ival
+        if xres[angle_index] <= -ival:
+            xres[angle_index] += 2. * ival
         # xres[angle_index] = angle_correction(xres[angle_index])
     return xres
 
@@ -47,7 +49,8 @@ def angle_correction(iangle):
 def mean_func(
     list_of_vecs: list[ndarray],
     weights: list[float] | None = None,
-    angle_index: int | None = None
+    angle_index: int | None = None,
+    radians: bool = False
 ) -> ndarray:
     """Returns means of vectors with wgts while handling angles"""
     assert isinstance(list_of_vecs, list), 'Need a list of numpy arrays'
@@ -59,6 +62,8 @@ def mean_func(
     if angle_index is not None:
         angle_index = int(angle_index)
         angles = np.array([ivec[angle_index] for ivec in list_of_vecs])
+        if not radians:
+            angles = np.radians(angles)
         # print(np.degrees(angles))
         # print(np.sin(angles))
         # print(np.cos(angles))
@@ -71,6 +76,8 @@ def mean_func(
         sum_sin = np.dot(np.sin(angles), weights)
         sum_cos = np.dot(np.cos(angles), weights)
         yvec[angle_index] = np.arctan2(sum_sin, sum_cos)
+        if not radians:
+            yvec[angle_index] = np.degrees(yvec[angle_index])
         # print(weights, sum_sin, sum_cos, yvec)
     return yvec
 

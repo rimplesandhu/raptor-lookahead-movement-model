@@ -27,10 +27,10 @@ class KalmanFilterBase(FilterAttributesStatic, FilterAttributesDynamic):
         FilterAttributesStatic.__init__(self, *args, **kwargs)
         FilterAttributesDynamic.__init__(self)
 
-    def __repr__(self):
-        """Updated repr function"""
-        istr = super().__repr__()
-        return f'----Kalman Filtering----\n{istr}\n'
+    # def __repr__(self):
+    #     """Updated repr function"""
+    #     istr = super().__repr__()
+    #     return f'----Kalman Filtering----\n{istr}\n'
 
     def initiate(
         self,
@@ -175,14 +175,21 @@ class KalmanFilterBase(FilterAttributesStatic, FilterAttributesDynamic):
         yprec: ndarray | None = None
     ):
         """compute filter performance metrics"""
-        idict = {'MetricNIS': np.nan,
-                 'MetricNEES': np.nan, 'MetricLogLik': np.nan}
+        idict = {
+            'MetricXresNorm': np.nan,
+            'MetricYresNorm': np.nan,
+            'MetricNIS': np.nan,
+            'MetricNEES': np.nan,
+            'MetricLogLik': np.nan
+        }
         if (yres is not None) and (yprec is not None):
+            idict['MetricYresNorm'] = np.linalg.norm(yres)
             idict['MetricNIS'] = np.linalg.multi_dot([yres.T, yprec, yres])
             prec_det = np.linalg.det(yprec)
             idict['MetricLogLik'] = -0.5 * (self.ny * np.log(2. * np.pi) -
                                             np.log(prec_det) + idict['MetricNIS'])
         if (xres is not None) and (xprec is not None):
+            idict['MetricXresNorm'] = np.linalg.norm(xres)
             idict['MetricNEES'] = np.linalg.multi_dot([xres.T, xprec, xres])
         return idict
 
@@ -259,21 +266,24 @@ class KalmanFilterBase(FilterAttributesStatic, FilterAttributesDynamic):
             self.raiseit('Need either int or str or (int,int) or (str,str)')
         return np.stack(self.dfraw[cname].values)[:, idx_pair[0], idx_pair[1]]
 
-    def get_df(self, smoother=False):
+    def get_df(
+        self,
+        smoother=False,
+        variance: bool = False,
+        metrics: bool = True
+    ) -> pd.DataFrame:
         """Returns short version of pandas dataframe"""
         out_df = self.dfraw.loc[:, [self.time_colname]].copy()
         mcol = self.smetrics_colname if smoother else self.metrics_colname
         for iname in self.state_names:
             out_df[iname] = self.get_mean(iname, smoother=smoother)
-            out_df[iname + '_var'] = self.get_cov(iname, smoother=smoother)
+            if variance:
+                out_df[iname + '_var'] = self.get_cov(iname, smoother=smoother)
         # dff['Observation'] = self.dfraw['Observation']
-        # dff['Training'] = True
-        # dff.loc[self.dfraw['Observation'].isna(), 'Training'] = False
         out_df['ObjectId'] = self.objectid
-        # out_df.insert(column='Id', value=self.objectid, dtype='int32')
-        out_df = pd.concat([out_df, self.dfraw[mcol].apply(pd.Series)], axis=1)
-        out_df[out_df.select_dtypes(np.float64).columns] = out_df.select_dtypes(
-            np.float64).astype(np.float32)
+        if metrics:
+            _mdf = self.dfraw[mcol].apply(pd.Series)
+            out_df = pd.concat([out_df, _mdf], axis=1)
         return out_df
 
     @property

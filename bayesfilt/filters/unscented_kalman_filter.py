@@ -57,8 +57,8 @@ class UnscentedKalmanFilter(KalmanFilterBase):
         """UKF forecast step"""
         super().forecast()
         self.m, self.P, _ = self.ut_fun_f.transform(self.m, self.P)
-        Qmat = self.fun_Q(self.m, self.vec_qbar)
-        Gmat = self.fun_Gjac(self.m, self.vec_qbar)
+        Qmat = self.fun_Q(self.m)
+        Gmat = self.fun_Gjac(self.m)
         self.P += Gmat @ Qmat @ Gmat.T
         self.P = self.symmetrize(self.P)
         self.store_this_timestep()
@@ -66,8 +66,8 @@ class UnscentedKalmanFilter(KalmanFilterBase):
     def update(self) -> None:
         """UKF update step"""
         yhat, Smat, Pxy = self.ut_fun_h.transform(self.m, self.P)
-        Hmat = self.fun_Hjac(self.m, self.vec_rbar)
-        Jmat = self.fun_Jjac(self.m, self.vec_rbar)
+        Hmat = self.fun_Hjac(self.m)
+        Jmat = self.fun_Jjac(self.m)
         Smat += Jmat @ self.R @ Jmat.T
         yres = self.fun_subtract_y(self.y, yhat)
         Smat_inv = np.linalg.pinv(Smat, hermitian=True)

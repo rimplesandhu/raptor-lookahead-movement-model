@@ -19,8 +19,9 @@ class FilterAttributesStatic:
     dt: float
     dt_tol: float | None = None
     epsilon: float = 1e-6
-    state_names: list[str] | None = None
     verbose: bool = False
+    # state_names: list[str] | None = None
+    state_names: list[str] = field(default_factory=list, repr=False)
     pars: dict[str, float] = field(default_factory=dict, repr=True)
 
     # model functions
