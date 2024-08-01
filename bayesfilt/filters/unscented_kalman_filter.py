@@ -3,7 +3,7 @@
 # pylint: disable=too-many-public-methods
 # pylint: disable=invalid-name
 import numpy as np
-from .kalman_filter_base import KalmanFilterBase
+from ._filter_base import KalmanFilterBase
 from .unscented_transform import UnscentedTransform
 
 

@@ -1,7 +1,4 @@
 """ bayesfilt.filters package """
-from .filter_attributes_static import FilterAttributesStatic
-from .filter_attributes_dynamic import FilterAttributesDynamic
-from .kalman_filter_base import KalmanFilterBase
 from .kalman_filter import KalmanFilter
 from .sigma_points import SigmaPoints
 from .extended_kalman_filter import ExtendedKalmanFilter

@@ -52,9 +52,14 @@ class MultisensorFusionEngine:
         self._cur_time = None
         self._cur_obs = None
         self._cur_om = None
-        self.df_kf = None
-        self.df_da = None
+        self._df_kf = None
+        self._df_da = None
         self._logliks = {}
+
+    @property
+    def df(self) -> pd.DataFrame:
+        """returns dataframe"""
+        return self._df_kf.copy()
 
     def _initiate_new_object(self, at_id, at_mean):
         """Initiates new object id"""
@@ -73,7 +78,7 @@ class MultisensorFusionEngine:
                     f'Killed {this_id} at {np.around(self._cur_time, 3)}s')
             del self.history_kf[this_id]
 
-    def assemble_df_kf(self, **kwargs):
+    def assemble_dataframe(self, **kwargs):
         """Assemble the df with fused object list"""
         # assemble all the dfs from KalmanFilterBase Object
         list_of_dfs = []
@@ -81,16 +86,14 @@ class MultisensorFusionEngine:
             list_of_dfs.append(self.history_kf[ix].get_df(**kwargs))
 
         if list_of_dfs:
-            self.df_kf = pd.concat(list_of_dfs, ignore_index=True, axis=0)
-            f64cols = list(self.df_kf.select_dtypes(include='float64'))
-            self.df_kf[f64cols] = self.df_kf[f64cols].astype('float32')
+            self._df_kf = pd.concat(list_of_dfs, ignore_index=True, axis=0)
         else:
-            self.df_kf = pd.DataFrame({})
-        # self.df_kf.drop(columns=['Observation', 'Training', 'FilterNEES',
+            self._df_kf = pd.DataFrame({})
+        # self._df_kf.drop(columns=['Observation', 'Training', 'FilterNEES',
         #                        'FilterNIS'], inplace=True, errors='ignore')
-        # self.df_kf['Time'] = [start_datetime + datetime.timedelta(
-        #     milliseconds=1000 * ix) for ix in self.df_kf['TimeElapsed']]
-        # self.df_kf.set_index(['ObjectId', 'Time'], inplace=True)
+        # self._df_kf['Time'] = [start_datetime + datetime.timedelta(
+        #     milliseconds=1000 * ix) for ix in self._df_kf['TimeElapsed']]
+        # self._df_kf.set_index(['ObjectId', 'Time'], inplace=True)
 
     def _remove_short_lived_inactive_objects(self):
         """Returns id of objects that are currently dead and have short lived"""
@@ -238,7 +241,7 @@ class MultisensorFusionEngine:
 
         # dead_object_ids = self._get_short_lived_objects_upto_current_time()
         # self._kill_these_objects(dead_object_ids)
-        self.df_da = pd.DataFrame(self.history_da)
+        self._df_da = pd.DataFrame(self.history_da)
 
         # finish
         print(f'Got a total of {len(self.history_kf)} object(s)')

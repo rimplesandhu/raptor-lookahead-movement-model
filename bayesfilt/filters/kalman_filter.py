@@ -2,67 +2,103 @@
 # pylint: disable=too-many-instance-attributes
 # pylint: disable=too-many-public-methods
 # pylint: disable=invalid-name
+from ._filter_base import KalmanFilterBase
+from .utils import assign_mat, symmetrize_mat
+
+from dataclasses import dataclass, field
 import numpy as np
-from .kalman_filter_base import KalmanFilterBase
+from numpy import ndarray
 
 
+@dataclass(kw_only=True)
 class KalmanFilter(KalmanFilterBase):
     """Kalman Filter"""
 
-    def initiate(self, *args, **kwargs):
-        """Initiate function"""
-        super().initiate(*args, **kwargs)
-        if self.mat_H is None:
-            self.raiseit('Need to initiate H matrix!')
-        if self.mat_F is None:
-            self.raiseit('Need to initiate F matrix!')
+    mat_F: ndarray = field(repr=False)
+    mat_H: ndarray = field(repr=False)
+    mat_Q: ndarray = field(repr=False)
+    mat_G: ndarray | None = field(default=None, repr=False)
+    mat_J: ndarray | None = field(default=None, repr=False)
 
-    def forecast(self) -> None:
+    def __post_init__(self):
+        """Post initialization"""
+        super().__post_init__()
+        if self.mat_G is None:
+            self.printit('Setting mat_G as identity matrix!')
+            self.mat_G = np.eye(self.nx)
+        if self.mat_J is None:
+            self.printit('Setting mat_J as identity matrix!')
+            self.mat_J = np.eye(self.ny)
+
+    def forecast(self, flag: str | None = None) -> None:
         """Kalman filter forecast step"""
-        super().forecast()
-        self.m = self.vec_qbar + self.mat_F @ self.m
-        self.P = self.mat_F @ self.P @ self.mat_F.T + \
-            self.mat_G @ self.mat_Q @ self.mat_G.T
-        self.store_this_timestep()
+        # update mean and cov
+        self.vars.flag = flag
+        self.vars.m = self.mat_F @ self.vars.m
+        self.vars.P = self.mat_F @ self.vars.P @ self.mat_F.T
+        self.vars.P += self.mat_G @ self.mat_Q @ self.mat_G.T
 
-    def update(self) -> None:
+        # run postproeccesing steps
+        self.forecast_postprocess()
+
+    def update(
+        self,
+        obs_y: ndarray,
+        obs_R: ndarray,
+        obs_flag: str | None = None
+    ) -> None:
         """Kalman filter update step"""
-        yhat = self.mat_H @ self.m
-        Smat = self.mat_H @ self.P @ self.mat_H.T + \
-            self.mat_J @ self.R @ self.mat_J.T
-        Smat_inv = np.linalg.pinv(Smat, hermitian=True)
-        yres = self.fun_subtract_y(self.y, yhat)
-        Kmat = self.P @ self.mat_H.T @ Smat_inv
-        xres = Kmat @ yres
-        self._m = self.fun_subtract_x(self.m, -xres)
-        Tmat = np.eye(self.nx) - Kmat @ self.mat_H
-        self.P = Tmat @ self.P @ Tmat.T + Kmat @ self.R @ Kmat.T  # Joseph
-        # self._P = (np.eye(self.nx) - Kmat @ self.mat_H) @ self.P
-        self.P = self.symmetrize(self.P)
-        Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
-        self.cur_metrics = self.compute_metrics(
-            xres, Pmat_inv, yres, Smat_inv)
-        self.store_this_timestep(update=True)
+        # update observation vars in tracker
+        self.vars.y = assign_mat(obs_y, self.ny)
+        self.vars.R = assign_mat(obs_R, (self.ny, self.ny))
 
-    def _backward_filter(self, smean_next, scov_next):
-        """Backward filter"""
-        Phat = self.mat_F @ self.P @ self.mat_F.T + \
-            self.mat_G @ self.mat_Q @ self.mat_G.T
-        Dmat = self.P @ self.mat_F.T @ np.linalg.pinv(Phat, hermitian=True)
-        mhat = self.mat_F @ self.m
-        xres = Dmat @ self.fun_subtract_x(smean_next, mhat)
-        self.m = self.fun_subtract_x(self.m, -xres)
-        self.P += Dmat @ (scov_next - Phat) @ Dmat.T
-        self.P = self.symmetrize(self.P)
-        self.cur_smetrics = self.compute_metrics()
-        if self.y is not None:
-            yhat = self.mat_H @ self.m
-            yres = self.fun_subtract_y(self.y, yhat)
-            Smat = self.mat_H @ Phat @ self.mat_H.T + \
-                self.mat_J @ self.R @ self.mat_J.T
-            Smat_inv = np.linalg.pinv(Smat, hermitian=True)
-            Kmat = Phat @ self.mat_H.T @ Smat_inv
-            Pmat_inv = np.linalg.pinv(self.P, hermitian=True)
-            xres = np.dot(Kmat, yres)
-            self.cur_smetrics = self.compute_metrics(
-                xres, Pmat_inv, yres, Smat_inv)
+        # residual in obs
+        yhat = self.mat_H @ self.vars.m
+        Smat = self.mat_H @ self.vars.P @ self.mat_H.T
+        Smat += self.mat_J @ self.vars.R @ self.mat_J.T
+        self.vars.Sinv = np.linalg.pinv(Smat, hermitian=True)
+        self.vars.yres = self.fun_subtract_y(self.vars.y, yhat)
+
+        # Updated state mean
+        Kmat = self.vars.P @ self.mat_H.T @ self.vars.Sinv
+        self.vars.mres = Kmat @ self.vars.yres
+        self.vars.m = self.fun_subtract_x(self.vars.m, -self.vars.mres)
+
+        # update state cov
+        Tmat = np.eye(self.nx) - Kmat @ self.mat_H
+        self.vars.P = Tmat @ self.vars.P @ Tmat.T
+        self.vars.P += Kmat @ self.vars.R @ Kmat.T  # Joseph
+        # self.vars.P = (np.eye(self.nx) - Kmat @ self.mat_H) @ self.vars.P
+        self.vars.P = symmetrize_mat(self.vars.P, eps=self.epsilon)
+        self.vars.Pinv = np.linalg.pinv(self.vars.P, hermitian=True)
+
+        # postprocessing
+        self.vars.flag = obs_flag
+        self.update_postprocess()
+
+    def backward_update(
+        self,
+        m_next: ndarray,
+        P_next: ndarray
+    ):
+        """Backward filter for smoothing"""
+        Phat = self.mat_F @ self.vars.P @ self.mat_F.T
+        Phat += self.mat_G @ self.mat_Q @ self.mat_G.T
+        Phat_inv = np.linalg.pinv(Phat, hermitian=True)
+        Dmat = self.vars.P @ self.mat_F.T @ Phat_inv
+        mhat = self.mat_F @ self.vars.m
+        self.vars.mres = Dmat @ self.fun_subtract_x(m_next, mhat)
+        self.vars.m = self.fun_subtract_x(self.vars.m, -self.vars.mres)
+        self.vars.P += Dmat @ (P_next - Phat) @ Dmat.T
+        self.vars.P = symmetrize_mat(self.vars.P, eps=self.epsilon)
+
+        # if data is encountered
+        if self.vars.y is not None:
+            yhat = self.mat_H @ self.vars.m
+            self.vars.yres = self.fun_subtract_y(self.vars.y, yhat)
+            Smat = self.mat_H @ Phat @ self.mat_H.T
+            Smat += self.mat_J @ self.vars.R @ self.mat_J.T
+            self.vars.Sinv = np.linalg.pinv(Smat, hermitian=True)
+            Kmat = Phat @ self.mat_H.T @ self.vars.Sinv
+            self.vars.Pinv = np.linalg.pinv(self.vars.P, hermitian=True)
+            self.vars.mres = np.dot(Kmat, self.vars.yres)
