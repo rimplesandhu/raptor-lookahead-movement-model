@@ -27,7 +27,8 @@ class FilterMetrics:
         residual_x: ndarray | None = None,
         precision_x: ndarray | None = None,
         residual_y: ndarray | None = None,
-        precision_y: ndarray | None = None
+        precision_y: ndarray | None = None,
+        ignore_obs_inds: list | None = None
     ):
         """compute filter performance metrics"""
         # set to default values first
@@ -35,12 +36,16 @@ class FilterMetrics:
 
         # is residual in data is provided
         if residual_y is not None:
-            self.YresNorm = np.linalg.norm(residual_y)
+            inds = list(range(0, len(residual_y)))
+            if ignore_obs_inds is not None:
+                inds = [ix for ix in inds if ix not in ignore_obs_inds]
+            rvec = residual_y[inds]
+            self.YresNorm = np.linalg.norm(rvec)
             if precision_y is not None:
-                self.NIS = np.linalg.multi_dot(
-                    [residual_y.T, precision_y, residual_y])
-                prec_det = np.linalg.det(precision_y)
-                self.LogLik = len(residual_y) * np.log(2. * np.pi)
+                Pmat = precision_y[inds][:, inds]
+                self.NIS = np.linalg.multi_dot([rvec.T, Pmat, rvec])
+                prec_det = np.linalg.det(Pmat)
+                self.LogLik = len(rvec) * np.log(2. * np.pi)
                 self.LogLik += self.NIS - np.log(prec_det)
                 self.LogLik *= -0.5
 

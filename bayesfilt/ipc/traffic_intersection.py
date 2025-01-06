@@ -20,8 +20,8 @@ class TrafficIntersection:
 
     def __init__(
         self,
-        center_lonlat: Tuple[float, float],
-        extent_meters: Tuple[float, float, float, float]
+        extent_meters: Tuple[float, float, float, float],
+        center_lonlat: Tuple[float, float] | None = None,
     ) -> None:
 
         self.extent = extent_meters  # (xmin, xmax, ymin, ymax)

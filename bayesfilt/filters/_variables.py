@@ -46,16 +46,6 @@ class FilterVariables:
         for field in fields(self):
             setattr(self, field.name, field.default)
 
-    @ property
-    def lifespan_to_last_update(self) -> float:
-        """Returns the time duration of existence till the last update"""
-        return self.t_last_update - self.t_start
-
-    @ property
-    def lifespan_to_last_forecast(self) -> float:
-        """Returns the time duration of existence till the last update"""
-        return self.t - self.t_start
-
     # @ property
     # def y(self) -> ndarray:
     #     """Observation vector"""

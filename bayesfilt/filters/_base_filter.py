@@ -5,31 +5,33 @@
 from ._logger import FilterLogger
 from ._metrics import FilterMetrics
 from ._variables import FilterVariables
-from .utils import assign_mat
+from .utils import check_mat
 
 import sys
 from dataclasses import dataclass, field
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from copy import deepcopy
 import numpy as np
 from numpy import ndarray
 from typing import Callable
-from functools import partial
 import numpy as np
+import pandas as pd
 from numpy import ndarray
 from tqdm import tqdm
 TypeFunc21 = Callable[[ndarray, ndarray], ndarray]
 
 
 @dataclass
-class KalmanFilterBase():
+class KalmanFilterBase(ABC):
     """ Base class for implementing various versions of Kalman Filters"""
     nx: int
     ny: int
     dt: float
     dt_tol: float | None = None
-    epsilon: float = 1e-6
-    verbose: bool = False
+    epsilon: float = field(default=1e-06, repr=False)
+    verbose: bool = field(default=None, repr=False)
+    object_id: int | str = 0
+    start_P: ndarray | None = field(default=None, repr=False)
     xnames: list[str] = field(default_factory=list, repr=False)
 
     #  add/subtract functions (to handle angles)
@@ -41,19 +43,12 @@ class KalmanFilterBase():
         default=np.subtract,
         repr=False
     )
-    fun_weighted_mean_x: TypeFunc21 = field(
-        default=partial(np.average, axis=0),
-        repr=False
-    )
-    fun_weighted_mean_y: TypeFunc21 = field(
-        default=partial(np.average, axis=0),
-        repr=False
-    )
 
     def __post_init__(self):
         """post initiation function"""
         # tracker, metrics and logger
         self.vars = FilterVariables()  # time-varying variables
+        self.vars_dummy = FilterVariables()  # time-varying variables, dummy
         self.metrics = FilterMetrics()  # metrics
         self.logger = FilterLogger()  # filter logger
         self.slogger = FilterLogger()  # smoother logger
@@ -68,6 +63,41 @@ class KalmanFilterBase():
             assert len(self.xnames) == self.nx, 'len(xnames) should be nx!'
         else:
             self.xnames = [f'X{i}' for i in range(self.nx)]
+
+        # check start_P
+        if self.start_P is not None:
+            self.start_P = check_mat(self.start_P, (self.nx, self.nx))
+
+    @abstractmethod
+    def update_step(
+        self,
+        out_vars: FilterVariables
+    ) -> None:
+        """Update step"""
+
+    @abstractmethod
+    def forecast_step(
+        self,
+        out_vars: FilterVariables
+    ) -> None:
+        """Forecast step"""
+
+    def get_df(self, smoother: bool = False, **kwargs) -> pd.DataFrame:
+        """get nice looking dataframe"""
+        if smoother:
+            return self.slogger.get_df(xnames=self.xnames, **kwargs)
+        else:
+            return self.logger.get_df(xnames=self.xnames, **kwargs)
+
+    @property
+    def df(self) -> pd.DataFrame:
+        """get nice looking dataframe: filter"""
+        return self.get_df(smoother=False)
+
+    @property
+    def dfs(self) -> pd.DataFrame:
+        """get nice looking dataframe: smoother"""
+        return self.get_df(smoother=True)
 
     def printit(self, istr):
         """print it"""
@@ -97,20 +127,27 @@ class KalmanFilterBase():
         self,
         t0: float,
         m0: ndarray,
-        P0: ndarray,
+        P0: ndarray | None = None,
         flag: str = 'Start'
     ) -> None:
         """Initiate the filter"""
         # first reset everything
-        self.printit(f'Initiating filter at {np.round(t0, 3)} sec..')
+        # self.printit(f'Initiating filter at {np.round(t0, 3)} sec..')
         self.reset()
+        self.vars.t = t0
+        self.vars.m = check_mat(m0, self.nx)
         self.vars.t_start = t0
+        self.vars.t_last_update = t0
         self.vars.flag = flag
 
-        # update variable tracker
-        self.vars.t = t0
-        self.vars.m = assign_mat(m0, self.nx)
-        self.vars.P = assign_mat(P0, (self.nx, self.nx))
+        # start variance
+        if P0 is None:
+            if self.start_P is None:
+                raise ValueError('Need either P0 or start_P (at definition)!')
+            else:
+                self.vars.P = check_mat(self.start_P, (self.nx, self.nx))
+        else:
+            self.vars.P = check_mat(P0, (self.nx, self.nx))
 
         # log this
         self.log_this_timestep()
@@ -118,7 +155,7 @@ class KalmanFilterBase():
     def forecast_upto(
         self,
         upto_time: float,
-        flag: str | None = None
+        **kwargs
     ) -> None:
         """forecast step upto some time in future"""
         time_diff = upto_time - self.vars.t
@@ -128,42 +165,68 @@ class KalmanFilterBase():
                 self.raiseit(f'Forecasting backward in time:{istr}!')
             nsteps = int(np.round(time_diff / self.dt))
             for _ in range(nsteps):
-                self.forecast(flag=flag)
+                self.forecast(**kwargs)
 
-    @abstractmethod
-    def forecast(self, flag: str | None = None) -> None:
-        """Forecast step"""
+    def forecast(
+        self,
+        dummy: bool = False,
+        flag: str = 'Forecast'
+    ) -> None:
+        """User-oriented forecast step"""
+        # check if dummy update
+        out_vars = self.vars_dummy if dummy else self.vars
 
-    @abstractmethod
+        # update observation vars
+        out_vars.y = None
+        out_vars.R = None
+
+        # from child
+        self.forecast_step(out_vars=out_vars)
+        out_vars.flag = flag
+        out_vars.t = self.vars.t + self.dt
+
+        # postprocess
+        self.metrics.compute()
+        if not dummy:
+            self.log_this_timestep()
+
     def update(
         self,
         obs_y: ndarray,
         obs_R: ndarray,
-        obs_flag: str | None
+        flag: str = 'Update',
+        dummy: bool = False,
+        ignore_obs_inds=None
     ) -> None:
         """Update step"""
+        # check if dummy update
+        out_vars = self.vars_dummy if dummy else self.vars
 
-    def forecast_postprocess(self):
-        """postrpocessing step for forecast"""
-        self.vars.t += self.dt
-        self.vars.y = None
-        self.vars.R = None
-        self.vars.mres = None
-        self.vars.yres = None
-        self.vars.Sinv = None
-        self.metrics.compute()
-        self.log_this_timestep()
+        # update observation related vars
+        # out_vars.y = check_mat(obs_y, self.ny)
+        out_vars.y = obs_y
+        # out_vars.R = check_mat(obs_R, (self.ny, self.ny))
+        out_vars.R = obs_R
+        out_vars.flag = flag
 
-    def update_postprocess(self):
-        """postprocessing step for update"""
+        # update step from children
+        self.update_step(out_vars=out_vars)
+
+        # postprocess
         self.metrics.compute(
-            residual_x=self.vars.mres,
-            residual_y=self.vars.yres,
-            precision_x=self.vars.Pinv,
-            precision_y=self.vars.Sinv
+            residual_x=out_vars.mres,
+            residual_y=out_vars.yres,
+            precision_x=out_vars.Pinv,
+            precision_y=out_vars.Sinv,
+            ignore_obs_inds=ignore_obs_inds
         )
-        self.t_last_update = deepcopy(self.vars.t)
-        self.log_this_timestep()
+        # dont worry this will be vars_dummpy if dont intend to update
+        out_vars.t_last_update = deepcopy(self.vars.t)
+
+        if not dummy:
+            # remove forecast when update step is logged
+            self.logger.remove_last_entry()
+            self.log_this_timestep()
 
     def filter(
         self,
@@ -171,7 +234,10 @@ class KalmanFilterBase():
         list_of_y: list[ndarray],
         list_of_R: list[ndarray] | ndarray,
     ) -> None:
-        """Run filtering assuming F, H, Q matrices are time invariant"""
+        """Runs filtering
+        :param list_of_t: List containing time elapsed
+
+        """
         # make sure the provided data is compatible
         nsteps = len(list_of_t)
         assert len(list_of_y) == nsteps, 'Length mismatch: list_of_y/list_of_t'
@@ -187,7 +253,7 @@ class KalmanFilterBase():
         tloop = tqdm(
             iterable=enumerate(list_of_t),
             total=nsteps,
-            desc=self.__class__.__name__,
+            desc=self.__class__.__name__ + '-forward',
             leave=True,
             file=sys.stdout
         )
@@ -198,7 +264,7 @@ class KalmanFilterBase():
 
             # forecast upto the next obs
             if itime - self.vars.t >= self.dt:
-                self.forecast_upto(itime, flag='Forecast')
+                self.forecast_upto(itime)
 
             # update
             if isinstance(list_of_R, ndarray):
@@ -208,52 +274,62 @@ class KalmanFilterBase():
 
             self.update(
                 obs_y=list_of_y[ith],
-                obs_R=Rmat,
-                obs_flag='Update'
+                obs_R=Rmat
             )
 
     @abstractmethod
-    def _backward_filter(self, smean_next, scov_next) -> None:
+    def backward_update(self, m_next: ndarray, P_next: ndarray) -> None:
         """Backward filter"""
 
-    def backward_update_postprocess(self):
-        """Backward update postprocess"""
-        pass
-
-    def smoother(self):
+    def smoother(self, disable_pbar: bool = False):
         """Run smoothing assuming model/measurement eq are time invariant"""
+        # smoother should only run untill the last update!!!
+
         # check if filter data exists
-        nsteps = len(self.logger.time_elapsed)
-        if nsteps < 2:
-            raise ValueError('No state history found, run filter() first!')
+        if not self.logger.is_initiated:
+            # print(f'This is {nsteps}-{self.object_id}', flush=True)
+            raise ValueError('Filter history required for smoother!')
 
         # reset the smoother
         self.slogger.reset()
         self.metrics.reset()
 
         # run loop
+        last_update_idx = self.logger.last_update_index
         tloop = tqdm(
-            iterable=reversed(range(nsteps)),
-            total=nsteps,
-            desc=self.__class__.__name__ + '(S)',
+            iterable=reversed(range(last_update_idx+1)),
+            total=last_update_idx+1,
+            desc=self.__class__.__name__ + '-backward',
             leave=True,
-            file=sys.stdout
+            file=sys.stdout,
+            disable=disable_pbar
         )
-        cur_t = self.logger.time_elapsed[-1] + self.dt
+        cur_t = self.logger.time_at_step(last_update_idx) + self.dt
         for i in tloop:
-            self.vars.t = deepcopy(self.logger.time_elapsed[i])
+            self.vars.t = deepcopy(self.logger.time_at_step(i))
             time_diff = cur_t - self.vars.t
             if abs(time_diff) > self.dt_tol:
-                self.vars.m = deepcopy(self.logger.state_mean()[i])
-                self.vars.P = deepcopy(self.logger.state_var()[i])
-                self.vars.y = deepcopy(self.logger.obs(i))
-                self.vars.R = deepcopy(self.logger.obs_var(i))
-                self.vars.flag = deepcopy(self.logger.flag(i))
-                if i != nsteps - 1:
+                # extract info from update
+                self.vars.m = deepcopy(self.logger.mean_at_step(i))
+                self.vars.P = deepcopy(self.logger.cov_at_step(i))
+                self.vars.y = deepcopy(self.logger.obs_at_step(i))
+                self.vars.R = deepcopy(self.logger.obs_var_at_step(i))
+                self.vars.flag = deepcopy(self.logger.flag_at_step(i))
+                if i != last_update_idx:
                     self.backward_update(smoothed_m, smoother_P)
+
                 smoothed_m = deepcopy(self.vars.m)
                 smoother_P = deepcopy(self.vars.P)
                 cur_t = deepcopy(self.vars.t)
+
+                self.metrics.compute()
+                if self.vars.y is not None:
+                    self.metrics.compute(
+                        residual_x=self.vars.mres,
+                        residual_y=self.vars.yres,
+                        precision_x=self.vars.Pinv,
+                        precision_y=self.vars.Sinv
+                    )
                 self.log_this_timestep(smoother=True)
         self.slogger.reverse()
 

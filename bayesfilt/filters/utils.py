@@ -15,7 +15,7 @@ Func2to1 = Callable[[ndarray, ndarray], ndarray]
 Func1to1 = Callable[[ndarray], ndarray]
 
 
-def assign_mat(
+def check_mat(
     in_mat: ndarray,
     in_shape: tuple | int | None = None,
     error: Exception = ValueError

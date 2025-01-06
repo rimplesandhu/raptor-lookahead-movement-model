@@ -1,25 +1,58 @@
 """Usefull functions for multisensor fusion engine"""
 # pylint: disable=invalid-name
-import glob
 import sys
-from typing import Optional, Union, Dict, List
-from pathlib import Path
-import os
-from functools import partial
 import datetime
 from numpy import ndarray
 import numpy as np
 import pandas as pd
 import pathos.multiprocessing as mp
-import cv2
 from tqdm import tqdm
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-from matplotlib import patches
 
-cb_clrs = ['#377eb8', '#ff7f00', '#4daf4a',
-           '#f781bf', '#a65628', '#984ea3',
-           '#999999', '#e41a1c', '#dede00']
+
+def rotate_clockwise(
+        xvals: ndarray,
+        yvals: ndarray,
+        angle_deg: float
+):
+    """rotarte clockwise"""
+    angle_rad = np.radians(angle_deg)
+    xnew = xvals * np.cos(angle_rad)
+    xnew += yvals * np.sin(angle_rad)
+    ynew = yvals * np.cos(angle_rad)
+    ynew -= xvals * np.sin(angle_rad)
+    return xnew, ynew
+
+
+def run_loop(func, tqdm_pbar: tqdm, ncores=mp.cpu_count()):
+    """Run parallel simulation"""
+    if ncores <= 1:
+        results = []
+        for ix in tqdm_pbar:
+            results.append(func(ix))
+    else:
+        with mp.Pool(ncores) as pool:
+            results = list(pool.imap(func, tqdm_pbar))
+    return results
+
+
+def change_angle(in_angle):
+    """Transform the angle for creating animations"""
+    out_angle = -in_angle + 90
+    out_angle[out_angle > 180] -= 360
+    return out_angle
+
+
+def get_list_of_times(min_time, max_time, time_res_ms, this_date: str = None):
+    """Returns list of times given min, max time and time resolution"""
+    this_date = datetime.datetime.today().date() if this_date is None else this_date
+    start_time = datetime.datetime.combine(this_date, min_time)
+    end_time = datetime.datetime.combine(this_date, max_time)
+    time_duration = (end_time - start_time).total_seconds()
+    num_of_frames = int(time_duration * 1000 // time_res_ms) + 1
+    list_of_tdeltas = [datetime.timedelta(
+        milliseconds=i * time_res_ms) for i in range(num_of_frames)]
+    list_of_times = [start_time + idelta for idelta in list_of_tdeltas]
+    return list_of_times
 
 
 # def get_short_df(df_dict, start_time = time(10,46), end_time = time(10,47)):
@@ -41,277 +74,141 @@ cb_clrs = ['#377eb8', '#ff7f00', '#4daf4a',
 #     Xval_new = Xval * np.cos(angle_rad) - Yval * np.sin(angle_rad)
 #     Yval_new = Xval * np.sin(angle_rad) + Yval * np.cos(angle_rad)
 #     return Xval_new, Yval_new
+# def create_frames(
+#     dict_of_dfs: list[pd.DataFrame],
+#     list_of_etimes: list[float],
+#     image_dir: str,
+#     init_fn: callable,
+#     dict_of_clrs: list[str],
+#     verbose=False,
+#     ncores=36,
+# ):
+#     """Create animation from a list of dataframes"""
+#     istr = f'{round(list_of_etimes[0], 3)}-{round(list_of_etimes[-1], 3)}'
+#     if verbose:
+#         print(f'Creating frames {istr}..')
+#     filelist = glob.glob(os.path.join(image_dir, "*.png"))
+#     _ = [os.remove(f) for f in filelist]
+#     time_res = list_of_etimes[1] - list_of_etimes[0]
+#     list_of_tuple = [(ix, iy, None, None, None)
+#                      for ix, iy in enumerate(list_of_etimes)]
+#     for i, (ikey, idf) in enumerate(dict_of_dfs.items()):
+#         # print(i, ikey, '-------')
+#         width = idf['Width'] if 'Width' in idf.columns else None
+#         frame_fn = partial(
+#             draw_frame,
+#             tlocs=idf['TimeElapsed'].values,
+#             xlocs=idf['PositionX'].values,
+#             ylocs=idf['PositionY'].values,
+#             headings=idf['Heading'].values,
+#             ids=idf['ObjectID'].values,
+#             time_pad=time_res/2.,
+#             case_dir=image_dir,
+#             initialize_fn=init_fn,
+#             widths=width,
+#             lengths=idf['Length'],
+#             ec=dict_of_clrs[ikey],
+#             fc='none',
+#         )
+#         if verbose:
+#             results = run_loop(
+#                 frame_fn,
+#                 list_of_tuple,
+#                 desc=f'df{i}',
+#                 ncores=ncores,
+#                 disable=False
+#             )
+#         else:
+#             results = run_loop(
+#                 frame_fn,
+#                 list_of_tuple,
+#                 desc=f'df{i}',
+#                 ncores=ncores,
+#                 disable=True
+#             )
 
-def run_loop(func, input_list, ncores=mp.cpu_count(), **kwargs):
-    """Run parallel simulation"""
-    pbar = tqdm(
-        iterable=input_list,
-        total=len(input_list),
-        position=0,
-        leave=True,
-        file=sys.stdout,
-        **kwargs
-    )
-    if ncores <= 1:
-        results = []
-        for ix in pbar:
-            results.append(func(ix))
-    else:
-        with mp.Pool(ncores) as pool:
-            results = list(pool.imap(func, pbar))
-    return results
-
-
-def change_angle(in_angle):
-    """Transform the angle for creating animations"""
-    out_angle = -in_angle + 90
-    out_angle[out_angle > 180] -= 360
-    return out_angle
-
-
-def get_frame_fname(ix):
-    """Returns filename for a given frame id"""
-    return f'frame.{str(ix).zfill(6)}.png'
-
-
-def create_video_from_frames(
-    image_dir: str,
-    fps: int,
-    filename: str = 'output.avi',
-    delete_images_after: bool = False
-):
-    """Creates/saves video from images saved as png files"""
-    # print(image_dir, filename)
-    # get the images
-    images = [img for img in os.listdir(image_dir) if img.endswith(".png")]
-    print(f'Creating video using {len(images)} frames at {fps} FPS..',
-          end="", flush=True)
-    images.sort()
-    frame = cv2.imread(os.path.join(image_dir, images[0]))
-
-    # get the size of frame
-    height, width, layers = frame.shape
-    fncc = cv2.VideoWriter_fourcc(*'MJPG')
-    video = cv2.VideoWriter(os.path.join(
-        image_dir, filename), fncc, fps, (width, height))
-
-    # add images to video
-    for image in images:
-        video.write(cv2.imread(os.path.join(image_dir, image)))
-        if delete_images_after:
-            os.remove(os.path.join(image_dir, image))
-
-    # finish and wrap up
-    cv2.destroyAllWindows()
-    video.release()
-    print('done')
+#         list_of_tuple = results.copy()
+#     return list_of_tuple
 
 
-def initialize_traffic_plot(
-    right_str: str = None,
-    left_str: str = None,
-    clr: str = 'lavender'
-):
-    """Initialize the plot for creating animations"""
-    fig, ax = plt.subplots(figsize=(5, 5))
-    ax.set_aspect('equal')
-    ax.axis(False)
-    fig.patch.set_linewidth(10)
-    fig.patch.set_edgecolor(clr)
-    fig.tight_layout()
+# def draw_frame(
+#     frame_tuple: tuple[int, float],
+#     tlocs: ndarray,
+#     xlocs: ndarray,
+#     ylocs: ndarray,
+#     headings: ndarray,
+#     case_dir: str,
+#     time_pad: float,
+#     initialize_fn: callable,
+#     widths: ndarray | None = None,
+#     lengths: ndarray | None = None,
+#     alphas: ndarray | None = None,
+#     ids: ndarray | None = None,
+#     **kwargs
+# ):
+#     # print(f'{ix}-', end="", flush=True)
+#     # print(time_pad)
+#     Path(case_dir).mkdir(parents=True, exist_ok=True)
+#     frame_id, at_time, fig, ax, fpath = frame_tuple
+#     # print(at_time, time_pad)
+#     ibool = (tlocs > (at_time - time_pad)) & (tlocs < (at_time + time_pad))
+#     if fig is None:
+#         fig, ax = initialize_fn()
+#     widths = np.ones_like(xlocs)*2.5 if widths is None else widths
+#     lengths = np.ones_like(xlocs)*5 if lengths is None else lengths
+#     # ids = np.ones_like(xlocs, dtype=int)*0 if ids is None else ids
+#     alphas = np.ones_like(xlocs)*0.75 if alphas is None else alphas
+#     jdf = pd.DataFrame({
+#         'ObjectId': ids[ibool],
+#         'PositionX': xlocs[ibool],
+#         'PositionY': ylocs[ibool],
+#         'Heading': headings[ibool],
+#         'Width': widths[ibool],
+#         'Length': lengths[ibool],
+#         'Alpha': alphas[ibool]
+#     })
+#     jdf.drop_duplicates(['ObjectId'], keep='last', inplace=True)
+#     # print(jdf)
+#     for _, irow in jdf.iterrows():
+#         centroid = (irow['PositionX'], irow['PositionY'])
+#         rot_transform = ax.transData
+#         lowerleft_loc = (
+#             centroid[0] - irow['Width'] / 2.,
+#             centroid[1] - irow['Length'] / 2.
+#         )
+#         # angle = (irow['Heading'] + 90.) % (360.)
+#         angle = 180.  # irow['Heading']
+#         rot_transform = mpl.transforms.Affine2D().rotate_deg_around(
+#             centroid[0],
+#             centroid[1],
+#             angle
+#         ) + ax.transData
+#         ibox = patches.FancyBboxPatch(
+#             xy=lowerleft_loc,
+#             width=irow['Width'],
+#             height=irow['Length'],
+#             boxstyle=patches.BoxStyle('round', rounding_size=1.),
+#             transform=rot_transform,
+#             alpha=irow['Alpha'],
+#             **kwargs
+#         )
+#         ax.add_patch(ibox)
+#         ax.text(
+#             irow['PositionX'],
+#             irow['PositionY'],
+#             str(int(irow['ObjectId']))[-2:],
+#             fontsize=4,
+#             ha='center',
+#             va='center',
+#             color='k'
+#         )
+#     Path(case_dir).mkdir(parents=True, exist_ok=True)
+#     fname = get_frame_fname(frame_id)
+#     fpath = os.path.join(case_dir, fname)
+#     fig.savefig(fpath, dpi=160, bbox_inches='tight')
+#     plt.close()
+#     return (frame_id, at_time, fig, ax, fpath)
 
-    if right_str is not None:
-        ax.text(1., 1., str(right_str), ha='right', va='top',
-                color='k', transform=ax.transAxes,
-                bbox=dict(fc=clr, ec=clr))
-    if left_str is not None:
-        ax.text(0., 1., str(left_str), ha='left', va='top',
-                color='k', transform=ax.transAxes,
-                bbox=dict(fc=clr, ec=clr))
-    return fig, ax
-
-
-def merge_frames(dir1, dir2, out_dir):
-    """Merge frames"""
-    flist1 = glob.glob(os.path.join(dir1, "*.png"))
-    flist2 = glob.glob(os.path.join(dir2, "*.png"))
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    for file1, file2 in zip(flist1, flist2):
-        image1 = cv2.imread(file1)
-        image2 = cv2.imread(file2)
-        vis = np.concatenate((image1, image2), axis=1)
-        fout = os.path.join(out_dir, file1.split('/')[-1])
-        cv2.imwrite(fout, vis)
-
-
-def create_frames(
-    dict_of_dfs: list[pd.DataFrame],
-    list_of_etimes: list[float],
-    image_dir: str,
-    init_fn: callable,
-    dict_of_clrs: list[str],
-    verbose=False,
-    ncores=36,
-):
-    """Create animation from a list of dataframes"""
-    istr = f'{round(list_of_etimes[0], 3)}-{round(list_of_etimes[-1], 3)}'
-    if verbose:
-        print(f'Creating frames {istr}..')
-    filelist = glob.glob(os.path.join(image_dir, "*.png"))
-    _ = [os.remove(f) for f in filelist]
-    time_res = list_of_etimes[1] - list_of_etimes[0]
-    list_of_tuple = [(ix, iy, None, None, None)
-                     for ix, iy in enumerate(list_of_etimes)]
-    for i, (ikey, idf) in enumerate(dict_of_dfs.items()):
-        # print(i, ikey, '-------')
-        width = idf['Width'] if 'Width' in idf.columns else None
-        frame_fn = partial(
-            draw_frame,
-            tlocs=idf['TimeElapsed'].values,
-            xlocs=idf['PositionX'].values,
-            ylocs=idf['PositionY'].values,
-            headings=idf['Heading'].values,
-            ids=idf['ObjectID'].values,
-            time_pad=time_res/2.,
-            case_dir=image_dir,
-            initialize_fn=init_fn,
-            widths=width,
-            lengths=idf['Length'],
-            ec=dict_of_clrs[ikey],
-            fc='none',
-        )
-        if verbose:
-            results = run_loop(
-                frame_fn,
-                list_of_tuple,
-                desc=f'df{i}',
-                ncores=ncores,
-                disable=False
-            )
-        else:
-            results = run_loop(
-                frame_fn,
-                list_of_tuple,
-                desc=f'df{i}',
-                ncores=ncores,
-                disable=True
-            )
-
-        list_of_tuple = results.copy()
-    return list_of_tuple
-
-
-def draw_frame(
-    frame_tuple: tuple[int, float],
-    tlocs: ndarray,
-    xlocs: ndarray,
-    ylocs: ndarray,
-    headings: ndarray,
-    case_dir: str,
-    time_pad: float,
-    initialize_fn: callable,
-    widths: ndarray | None = None,
-    lengths: ndarray | None = None,
-    alphas: ndarray | None = None,
-    ids: ndarray | None = None,
-    **kwargs
-):
-    # print(f'{ix}-', end="", flush=True)
-    # print(time_pad)
-    Path(case_dir).mkdir(parents=True, exist_ok=True)
-    frame_id, at_time, fig, ax, fpath = frame_tuple
-    # print(at_time, time_pad)
-    ibool = (tlocs > (at_time - time_pad)) & (tlocs < (at_time + time_pad))
-    if fig is None:
-        fig, ax = initialize_fn()
-    widths = np.ones_like(xlocs)*2.5 if widths is None else widths
-    lengths = np.ones_like(xlocs)*5 if lengths is None else lengths
-    # ids = np.ones_like(xlocs, dtype=int)*0 if ids is None else ids
-    alphas = np.ones_like(xlocs)*0.75 if alphas is None else alphas
-    jdf = pd.DataFrame({
-        'ObjectId': ids[ibool],
-        'PositionX': xlocs[ibool],
-        'PositionY': ylocs[ibool],
-        'Heading': headings[ibool],
-        'Width': widths[ibool],
-        'Length': lengths[ibool],
-        'Alpha': alphas[ibool]
-    })
-    jdf.drop_duplicates(['ObjectId'], keep='last', inplace=True)
-    # print(jdf)
-    for _, irow in jdf.iterrows():
-        centroid = (irow['PositionX'], irow['PositionY'])
-        rot_transform = ax.transData
-        lowerleft_loc = (
-            centroid[0] - irow['Width'] / 2.,
-            centroid[1] - irow['Length'] / 2.
-        )
-        # angle = (irow['Heading'] + 90.) % (360.)
-        angle = 180.  # irow['Heading']
-        rot_transform = mpl.transforms.Affine2D().rotate_deg_around(
-            centroid[0],
-            centroid[1],
-            angle
-        ) + ax.transData
-        ibox = patches.FancyBboxPatch(
-            xy=lowerleft_loc,
-            width=irow['Width'],
-            height=irow['Length'],
-            boxstyle=patches.BoxStyle('round', rounding_size=1.),
-            transform=rot_transform,
-            alpha=irow['Alpha'],
-            **kwargs
-        )
-        ax.add_patch(ibox)
-        ax.text(
-            irow['PositionX'],
-            irow['PositionY'],
-            str(int(irow['ObjectId']))[-2:],
-            fontsize=4,
-            ha='center',
-            va='center',
-            color='k'
-        )
-    Path(case_dir).mkdir(parents=True, exist_ok=True)
-    fname = get_frame_fname(frame_id)
-    fpath = os.path.join(case_dir, fname)
-    fig.savefig(fpath, dpi=160, bbox_inches='tight')
-    plt.close()
-    return (frame_id, at_time, fig, ax, fpath)
-
-
-def add_colored_legend(ax, idict):
-    """add legend"""
-    for ix, (iname, iclr) in enumerate(idict.items()):
-        ax.text(.0, 0.01 + ix * 0.05, iname,
-                fontsize=9, transform=ax.transAxes,
-                bbox=dict(boxstyle="round", fc=iclr, ec='none', alpha=0.25))
-
-
-def get_list_of_times(min_time, max_time, time_res_ms, this_date: str = None):
-    """Returns list of times given min, max time and time resolution"""
-    this_date = datetime.datetime.today().date() if this_date is None else this_date
-    start_time = datetime.datetime.combine(this_date, min_time)
-    end_time = datetime.datetime.combine(this_date, max_time)
-    time_duration = (end_time - start_time).total_seconds()
-    num_of_frames = int(time_duration * 1000 // time_res_ms) + 1
-    list_of_tdeltas = [datetime.timedelta(
-        milliseconds=i * time_res_ms) for i in range(num_of_frames)]
-    list_of_times = [start_time + idelta for idelta in list_of_tdeltas]
-    return list_of_times
-
-
-def fig_init_fn_csprings(close_fig: bool = False):
-    fig, ax = initialize_traffic_plot(
-        left_str='Colorado Springs\nPalmer Park & N Powers',
-        right_str='Aug 28, 2023'
-    )
-    ax.set_xlim([-100, 80])
-    ax.set_ylim([-80, 100])
-    ax.set_aspect('equal')
-    if close_fig:
-        plt.close(fig)
-    return fig, ax
 
 # def box_function(irow, rot_start, box_fill: bool = True, box_color='r'):
 #     iangle = (irow['Heading'] + np.pi / 2) % (2.0 * np.pi)

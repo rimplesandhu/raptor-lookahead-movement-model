@@ -3,7 +3,7 @@
 from typing import Callable, List
 from numpy import ndarray
 import numpy as np
-from .state_space_model import StateSpaceModel
+from ._state_space_model import StateSpaceModel
 
 
 class ObservationModel(StateSpaceModel):

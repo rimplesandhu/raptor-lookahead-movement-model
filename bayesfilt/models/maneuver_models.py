@@ -11,22 +11,28 @@ from .nonlinear_motion_model import NonlinearMotionModel
 class CTRV_POINT(NonlinearMotionModel):
     """Class for Constant Turn Rate and Velocity for a point object"""
 
-    def __init__(self):
-        super().__init__(nx=5, name='CTRV_POINT')
-        self.state_names = ['X', 'Y', 'Heading', 'Speed', 'HeadingRate']
-
-    @property
-    def phi_names(self):
-        return ['sigma_hrate', 'sigma_speed']
+    def __init__(
+            self,
+            sigma_hrate: float,
+            sigma_speed: float
+    ):
+        super().__init__(
+            nx=5,
+            name='CTRV_POINT',
+            xnames=['PositionX', 'PositionY',
+                    'Heading', 'Speed', 'HeadingRate']
+        )
+        self.sigma_hrate = sigma_hrate
+        self.sigma_speed = sigma_speed
 
     def func_f(
         self,
         x: ndarray,
         dt: float,
-        u: ndarray | None = None
     ) -> ndarray:
         """Model dynamics function"""
         # x = self.vec_setter(x, self.nx)
+
         speed_x = x[3]*np.cos(np.radians(x[2]))
         speed_y = x[3]*np.sin(np.radians(x[2]))
         x[2] = np.degrees(np.arctan2(speed_y, speed_x))
@@ -55,20 +61,20 @@ class CTRV_POINT(NonlinearMotionModel):
     def func_Q(
         self,
         x: ndarray,
-        dt: float,
-        u: ndarray | None = None
+        dt: float
     ) -> ndarray:
         """Get Q matrix"""
-        ssq = [self.phi['sigma_speed'], self.phi['sigma_hrate']]
+        ssq = [self.sigma_speed, self.sigma_hrate]
         ssq = [ix**2 for ix in ssq]
         angle = np.radians(x[2])
+
         self._Q[0, 0] = ssq[0] * np.cos(angle) ** 2 * dt ** 3 / 3.
-        self._Q[0, 1] = 0. * ssq[0] * np.sin(2 * angle) * dt ** 3 / 6.
-        self._Q[0, 3] = 0. * ssq[0] * np.cos(angle) * dt ** 2 / 2.
-        self._Q[0, 4] = 0. * ssq[1] * x[3] * np.sin(angle) * dt ** 3 / 6.
+        self._Q[0, 1] = ssq[0] * np.sin(2 * angle) * dt ** 3 / 6.
+        self._Q[0, 3] = ssq[0] * np.cos(angle) * dt ** 2 / 2.
+        self._Q[0, 4] = ssq[1] * x[3] * np.sin(angle) * dt ** 3 / 6.
         self._Q[1, 1] = ssq[0] * np.sin(angle) ** 2 * dt ** 3 / 3.
-        self._Q[1, 3] = 0 * ssq[0] * np.sin(angle) * dt ** 2 / 2.
-        self._Q[1, 4] = 0 * ssq[1] * x[3] * np.cos(angle) * dt ** 3 / 6.
+        self._Q[1, 3] = ssq[0] * np.sin(angle) * dt ** 2 / 2.
+        self._Q[1, 4] = ssq[1] * x[3] * np.cos(angle) * dt ** 3 / 6.
         self._Q[2, 2] = ssq[1] * dt ** 3 / 3.
         self._Q[2, 4] = ssq[1] * dt ** 2 / 2.
         self._Q[3, 3] = ssq[0] * dt ** 1 / 1.
@@ -77,172 +83,172 @@ class CTRV_POINT(NonlinearMotionModel):
         return self.Q
 
 
-class CTRV_RECT(NonlinearMotionModel):
-    """Class for Constant Turn Rate and Velocity for a 2D object"""
+# class CTRV_RECT(NonlinearMotionModel):
+#     """Class for Constant Turn Rate and Velocity for a 2D object"""
 
-    def __init__(self):
-        super().__init__(nx=7, name='CTRV_RECT')
-        self.state_names = ['PositionX', 'PositionY', 'Heading', 'Speed', 'HeadingRate',
-                            'Width', 'Length']
-        self._ctrv = CTRV_POINT()
+#     def __init__(self):
+#         super().__init__(nx=7, name='CTRV_RECT')
+#         self.state_names = ['PositionX', 'PositionY', 'Heading', 'Speed', 'HeadingRate',
+#                             'Width', 'Length']
+#         self._ctrv = CTRV_POINT()
 
-    @property
-    def phi_names(self):
-        return ['sigma_hrate', 'sigma_speed', 'sigma_width', 'sigma_length']
+#     @property
+#     def phi_names(self):
+#         return ['sigma_hrate', 'sigma_speed', 'sigma_width', 'sigma_length']
 
-    def func_f(
-        self,
-        x: ndarray,
-        dt: float,
-        u: ndarray | None = None
-    ) -> ndarray:
-        """Model dynamics function"""
-        next_x = deepcopy(x)
-        next_x[0:5] = self._ctrv.func_f(x[0:5], dt=dt)
-        next_x[5] = x[5]
-        next_x[6] = x[6]
-        return next_x
+#     def func_f(
+#         self,
+#         x: ndarray,
+#         dt: float,
+#         u: ndarray | None = None
+#     ) -> ndarray:
+#         """Model dynamics function"""
+#         next_x = deepcopy(x)
+#         next_x[0:5] = self._ctrv.func_f(x[0:5], dt=dt)
+#         next_x[5] = x[5]
+#         next_x[6] = x[6]
+#         return next_x
 
-    def func_Q(
-        self,
-        x: ndarray,
-        dt: float,
-        u: ndarray | None = None
-    ) -> None:
-        """Get Q matrix"""
-        ssq = [self.phi['sigma_speed'], self.phi['sigma_hrate'],
-               self.phi['sigma_width'], self.phi['sigma_length']]
-        self._ctrv.phi = {k: v for k,
-                          v in self.phi.items() if k in self._ctrv.phi_names}
-        self._ctrv.dt = dt
-        ssq = [ix**2 for ix in ssq]
-        self._Q = np.eye(self.nx)
-        self._Q[0:5, 0:5] = self._ctrv.func_Q(x[0:5], dt=dt)
-        self._Q[5, 5] = ssq[2] * dt ** 2 / 1.
-        self._Q[6, 6] = ssq[3] * dt ** 2 / 1.
-        return self.Q
-
-
-class CTRA_POINT(NonlinearMotionModel):
-    # pylint: disable=invalid-name
-    """Class for Constant Turn Rate and Velocity for a point object"""
-
-    def __init__(self):
-        super().__init__(nx=6, name='CTRA_POINT')
-        self.state_names = [
-            'PositionX', 'PositionY',
-            'Heading', 'Velocity',
-            'HeadingRate', 'Acceleration'
-        ]
-
-    @property
-    def phi_names(self):
-        return ['sigma_hrate', 'sigma_accn', 'min_speed']
-
-    def func_f(
-        self,
-        x: ndarray,
-        dt: float,
-        u: ndarray | None = None
-    ) -> ndarray:
-        """Model dynamics function"""
-        next_x = deepcopy(x)
-        # if x[3] < 4.:
-        #     next_x[3] = x[3]*0.5
-        #     next_x[4] = 0.
-        #     next_x[5] = 0.
-        # else:
-        next_x[0] = x[0] + x[3] * np.cos(np.radians(x[2])) * dt
-        next_x[1] = x[1] + x[3] * np.sin(np.radians(x[2])) * dt
-        next_x[2] = x[2] + x[4] * dt
-        next_x[3] = x[3] + x[5] * dt
-        # if np.abs(x[4]) > 2.:
-        #     next_x[0] = x[0] + x[3] / np.radians(x[4]) * \
-        #         (np.sin(np.radians(next_x[2])) - np.sin(np.radians(x[2])))
-        #     next_x[1] = x[1] - x[3] / np.radians(x[4]) * \
-        #         (np.cos(np.radians(next_x[2])) - np.cos(np.radians(x[2])))
-        # else:
-        #     next_x[0] = x[0] + x[3] * np.cos(np.radians(x[2])) * dt
-        #     next_x[1] = x[1] + x[3] * np.sin(np.radians(x[2])) * dt
-        if next_x[2] > 180.:
-            next_x[2] -= 360.
-        if next_x[2] < -180.:
-            next_x[2] += 360.
-        return next_x
-
-    def func_Q(
-        self,
-        x: ndarray,
-        dt: float,
-        u: ndarray | None = None
-    ) -> ndarray:
-        """Get Q matrix"""
-        ssq = [self.phi['sigma_accn'], self.phi['sigma_hrate']]
-        ssq = [ix**2 for ix in ssq]
-        self._Q = np.zeros((self.nx, self.nx))
-        self._Q[0, 0] = ssq[0] * np.cos(np.radians(x[2])) ** 2 * dt ** 3 / 3.
-        self._Q[0, 1] = 0. * ssq[0] * np.sin(2 * x[2]) * dt ** 3 / 6.
-        self._Q[0, 3] = 0. * ssq[0] * np.cos(x[2]) * dt ** 2 / 2.
-        self._Q[0, 4] = 0. * ssq[1] * x[3] * np.sin(x[2]) * dt ** 3 / 6.
-        self._Q[1, 1] = ssq[0] * np.sin(np.radians(x[2])) ** 2 * dt ** 3 / 3.
-        self._Q[1, 3] = 0 * ssq[0] * np.sin(x[2]) * dt ** 2 / 2.
-        self._Q[1, 4] = 0 * ssq[1] * x[3] * np.cos(x[2]) * dt ** 3 / 6.
-        self._Q[2, 2] = ssq[1] * dt ** 3 / 3.
-        self._Q[2, 4] = ssq[1] * dt ** 2 / 2.
-        self._Q[3, 3] = ssq[0] * dt ** 3 / 3.
-        self._Q[3, 5] = ssq[0] * dt ** 2 / 2.
-        self._Q[4, 4] = ssq[1] * dt ** 1 / 1.
-        self._Q[5, 5] = ssq[0] * dt ** 1 / 1.
-        self._Q = self.symmetrize(self.Q)
-        return self.Q
+#     def func_Q(
+#         self,
+#         x: ndarray,
+#         dt: float,
+#         u: ndarray | None = None
+#     ) -> None:
+#         """Get Q matrix"""
+#         ssq = [self.phi['sigma_speed'], self.phi['sigma_hrate'],
+#                self.phi['sigma_width'], self.phi['sigma_length']]
+#         self._ctrv.phi = {k: v for k,
+#                           v in self.phi.items() if k in self._ctrv.phi_names}
+#         self._ctrv.dt = dt
+#         ssq = [ix**2 for ix in ssq]
+#         self._Q = np.eye(self.nx)
+#         self._Q[0:5, 0:5] = self._ctrv.func_Q(x[0:5], dt=dt)
+#         self._Q[5, 5] = ssq[2] * dt ** 2 / 1.
+#         self._Q[6, 6] = ssq[3] * dt ** 2 / 1.
+#         return self.Q
 
 
-class CTRA_RECT(NonlinearMotionModel):
-    """Class for Constant Turn Rate and Accn for a 2D object"""
+# class CTRA_POINT(NonlinearMotionModel):
+#     # pylint: disable=invalid-name
+#     """Class for Constant Turn Rate and Velocity for a point object"""
 
-    def __init__(self):
-        super().__init__(nx=8, name='CTRA_RECT')
-        self.state_names = [
-            'PositionX', 'PositionY',
-            'Heading', 'Speed', 'HeadingRate',
-            'Acceleration', 'Width', 'Length'
-        ]
-        self._ctra = CTRA_POINT()
+#     def __init__(self):
+#         super().__init__(nx=6, name='CTRA_POINT')
+#         self.state_names = [
+#             'PositionX', 'PositionY',
+#             'Heading', 'Velocity',
+#             'HeadingRate', 'Acceleration'
+#         ]
 
-    @property
-    def phi_names(self):
-        return ['sigma_hrate', 'sigma_accn', 'min_speed'] + ['sigma_width', 'sigma_length']
+#     @property
+#     def phi_names(self):
+#         return ['sigma_hrate', 'sigma_accn', 'min_speed']
 
-    def func_f(
-        self,
-        x: ndarray,
-        dt: float,
-        u: ndarray | None = None,
-    ) -> ndarray:
-        """Model dynamics function"""
-        next_x = deepcopy(x)
-        next_x[0:6] = self._ctra.func_f(x[0:6], dt=dt)
-        next_x[6] = x[6]
-        next_x[7] = x[7]
-        return next_x
+#     def func_f(
+#         self,
+#         x: ndarray,
+#         dt: float,
+#         u: ndarray | None = None
+#     ) -> ndarray:
+#         """Model dynamics function"""
+#         next_x = deepcopy(x)
+#         # if x[3] < 4.:
+#         #     next_x[3] = x[3]*0.5
+#         #     next_x[4] = 0.
+#         #     next_x[5] = 0.
+#         # else:
+#         next_x[0] = x[0] + x[3] * np.cos(np.radians(x[2])) * dt
+#         next_x[1] = x[1] + x[3] * np.sin(np.radians(x[2])) * dt
+#         next_x[2] = x[2] + x[4] * dt
+#         next_x[3] = x[3] + x[5] * dt
+#         # if np.abs(x[4]) > 2.:
+#         #     next_x[0] = x[0] + x[3] / np.radians(x[4]) * \
+#         #         (np.sin(np.radians(next_x[2])) - np.sin(np.radians(x[2])))
+#         #     next_x[1] = x[1] - x[3] / np.radians(x[4]) * \
+#         #         (np.cos(np.radians(next_x[2])) - np.cos(np.radians(x[2])))
+#         # else:
+#         #     next_x[0] = x[0] + x[3] * np.cos(np.radians(x[2])) * dt
+#         #     next_x[1] = x[1] + x[3] * np.sin(np.radians(x[2])) * dt
+#         if next_x[2] > 180.:
+#             next_x[2] -= 360.
+#         if next_x[2] < -180.:
+#             next_x[2] += 360.
+#         return next_x
 
-    def func_Q(
-        self,
-        x: ndarray,
-        dt: float,
-        u: ndarray | None = None,
-    ) -> None:
-        """Get Q matrix"""
-        ssq = [self.phi['sigma_accn'], self.phi['sigma_hrate'],
-               self.phi['sigma_width'], self.phi['sigma_length']]
-        self._ctra.phi = {k: v for k,
-                          v in self.phi.items() if k in self._ctra.phi_names}
-        ssq = [ix**2 for ix in ssq]
-        self._Q = np.eye(self.nx)
-        self._Q[0:6, 0:6] = self._ctra.func_Q(x[0:6], dt=dt)
-        self._Q[7, 7] = ssq[3] * dt ** 1 / 1.
-        self._Q[6, 6] = ssq[2] * dt ** 1 / 1.
-        return self.Q
+#     def func_Q(
+#         self,
+#         x: ndarray,
+#         dt: float,
+#         u: ndarray | None = None
+#     ) -> ndarray:
+#         """Get Q matrix"""
+#         ssq = [self.phi['sigma_accn'], self.phi['sigma_hrate']]
+#         ssq = [ix**2 for ix in ssq]
+#         self._Q = np.zeros((self.nx, self.nx))
+#         self._Q[0, 0] = ssq[0] * np.cos(np.radians(x[2])) ** 2 * dt ** 3 / 3.
+#         self._Q[0, 1] = 0. * ssq[0] * np.sin(2 * x[2]) * dt ** 3 / 6.
+#         self._Q[0, 3] = 0. * ssq[0] * np.cos(x[2]) * dt ** 2 / 2.
+#         self._Q[0, 4] = 0. * ssq[1] * x[3] * np.sin(x[2]) * dt ** 3 / 6.
+#         self._Q[1, 1] = ssq[0] * np.sin(np.radians(x[2])) ** 2 * dt ** 3 / 3.
+#         self._Q[1, 3] = 0 * ssq[0] * np.sin(x[2]) * dt ** 2 / 2.
+#         self._Q[1, 4] = 0 * ssq[1] * x[3] * np.cos(x[2]) * dt ** 3 / 6.
+#         self._Q[2, 2] = ssq[1] * dt ** 3 / 3.
+#         self._Q[2, 4] = ssq[1] * dt ** 2 / 2.
+#         self._Q[3, 3] = ssq[0] * dt ** 3 / 3.
+#         self._Q[3, 5] = ssq[0] * dt ** 2 / 2.
+#         self._Q[4, 4] = ssq[1] * dt ** 1 / 1.
+#         self._Q[5, 5] = ssq[0] * dt ** 1 / 1.
+#         self._Q = self.symmetrize(self.Q)
+#         return self.Q
+
+
+# class CTRA_RECT(NonlinearMotionModel):
+#     """Class for Constant Turn Rate and Accn for a 2D object"""
+
+#     def __init__(self):
+#         super().__init__(nx=8, name='CTRA_RECT')
+#         self.state_names = [
+#             'PositionX', 'PositionY',
+#             'Heading', 'Speed', 'HeadingRate',
+#             'Acceleration', 'Width', 'Length'
+#         ]
+#         self._ctra = CTRA_POINT()
+
+#     @property
+#     def phi_names(self):
+#         return ['sigma_hrate', 'sigma_accn', 'min_speed'] + ['sigma_width', 'sigma_length']
+
+#     def func_f(
+#         self,
+#         x: ndarray,
+#         dt: float,
+#         u: ndarray | None = None,
+#     ) -> ndarray:
+#         """Model dynamics function"""
+#         next_x = deepcopy(x)
+#         next_x[0:6] = self._ctra.func_f(x[0:6], dt=dt)
+#         next_x[6] = x[6]
+#         next_x[7] = x[7]
+#         return next_x
+
+#     def func_Q(
+#         self,
+#         x: ndarray,
+#         dt: float,
+#         u: ndarray | None = None,
+#     ) -> None:
+#         """Get Q matrix"""
+#         ssq = [self.phi['sigma_accn'], self.phi['sigma_hrate'],
+#                self.phi['sigma_width'], self.phi['sigma_length']]
+#         self._ctra.phi = {k: v for k,
+#                           v in self.phi.items() if k in self._ctra.phi_names}
+#         ssq = [ix**2 for ix in ssq]
+#         self._Q = np.eye(self.nx)
+#         self._Q[0:6, 0:6] = self._ctra.func_Q(x[0:6], dt=dt)
+#         self._Q[7, 7] = ssq[3] * dt ** 1 / 1.
+#         self._Q[6, 6] = ssq[2] * dt ** 1 / 1.
+#         return self.Q
 
 
 # # class CTRV3D(MotionModel):
@@ -1185,3 +1191,60 @@ class CTRA_RECT(NonlinearMotionModel):
 #     def labels(self):
 #         """Return labels for plotting"""
 #         return self._labels
+
+
+# def func_f(
+#     self,
+#     x: ndarray,
+#     dt: float,
+# ) -> ndarray:
+#     """Model dynamics function"""
+#     # x = self.vec_setter(x, self.nx)
+#     speed_x = x[3]*np.cos(np.radians(x[2]))
+#     speed_y = x[3]*np.sin(np.radians(x[2]))
+#     x[2] = np.degrees(np.arctan2(speed_y, speed_x))
+#      x[3] = np.sqrt(speed_x**2 + speed_y**2)
+#       next_x = deepcopy(x)
+#        if x[3] > 4.:
+#             next_x[2] = x[2] + x[4] * dt
+
+#         if next_x[2] > 180.:
+#             next_x[2] -= 360.
+#         if next_x[2] < -180.:
+#             next_x[2] += 360.
+#         # if x[3] < 2.:  # low speed
+#         #     next_x[3] = 0.
+#         #     next_x[2] = x[2]
+#         if np.abs(x[4]) > 2.:
+#             next_x[0] = x[0] + x[3] / np.radians(x[4]) * \
+#                 (np.sin(np.radians(next_x[2])) - np.sin(np.radians(x[2])))
+#             next_x[1] = x[1] - x[3] / np.radians(x[4]) * \
+#                 (np.cos(np.radians(next_x[2])) - np.cos(np.radians(x[2])))
+#         else:
+#             next_x[0] = x[0] + x[3] * np.cos(np.radians(x[2])) * dt
+#             next_x[1] = x[1] + x[3] * np.sin(np.radians(x[2])) * dt
+#         return next_x
+
+# #     def func_Q(
+# #         self,
+# #         x: ndarray,
+# #         dt: float,
+# #         u: ndarray | None = None
+# #     ) -> ndarray:
+# #         """Get Q matrix"""
+# #         ssq = [self.phi['sigma_speed'], self.phi['sigma_hrate']]
+# #         ssq = [ix**2 for ix in ssq]
+# #         angle = np.radians(x[2])
+# #         self._Q[0, 0] = ssq[0] * np.cos(angle) ** 2 * dt ** 3 / 3.
+# #         self._Q[0, 1] = 0. * ssq[0] * np.sin(2 * angle) * dt ** 3 / 6.
+# #         self._Q[0, 3] = 0. * ssq[0] * np.cos(angle) * dt ** 2 / 2.
+# #         self._Q[0, 4] = 0. * ssq[1] * x[3] * np.sin(angle) * dt ** 3 / 6.
+# #         self._Q[1, 1] = ssq[0] * np.sin(angle) ** 2 * dt ** 3 / 3.
+# #         self._Q[1, 3] = 0 * ssq[0] * np.sin(angle) * dt ** 2 / 2.
+# #         self._Q[1, 4] = 0 * ssq[1] * x[3] * np.cos(angle) * dt ** 3 / 6.
+# #         self._Q[2, 2] = ssq[1] * dt ** 3 / 3.
+# #         self._Q[2, 4] = ssq[1] * dt ** 2 / 2.
+# #         self._Q[3, 3] = ssq[0] * dt ** 1 / 1.
+# #         self._Q[4, 4] = ssq[1] * dt ** 1 / 1.
+# #         self._Q = self.symmetrize(self.Q)
+# #         return self.Q

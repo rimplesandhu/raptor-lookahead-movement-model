@@ -3,25 +3,28 @@
 # pylint: disable=too-many-public-methods
 # pylint: disable=invalid-name
 
-from dataclasses import dataclass, field
 from copy import deepcopy
 import pandas as pd
 import numpy as np
 from numpy import ndarray
 
 
-@dataclass
 class FilterLogger:
     """Logger class"""
-    _raw: list = field(default_factory=list, repr=False)
+
+    def __init__(self):
+        """initialization"""
+        self._raw: list = []
 
     @property
-    def df(self):
+    def dfraw(self):
         """return raw data as pandas dataframe"""
-        idf = pd.DataFrame(self._raw)
-        if not idf.empty:
-            idf.flag = idf.flag.astype('category')
-        return idf
+        return pd.DataFrame(self._raw)
+
+    @property
+    def is_initiated(self):
+        """Check if data exists"""
+        return self._raw
 
     def reset(self):
         """reset the logger"""
@@ -30,6 +33,61 @@ class FilterLogger:
     def reverse(self):
         """reverse the order"""
         self._raw = list(reversed(self._raw))
+
+    @property
+    def last_update_index(self):
+        if self.is_initiated:
+            if self.dfraw.obs.notna().values.any():
+                return self.dfraw.obs.notna()[::-1].idxmax()
+            else:
+                return 0  # when there is no update after start
+
+    def get_df(
+        self,
+        xnames: list[str] | None = None,
+        variance: bool = True,
+        metrics: bool = True,
+        # remove_forecast_at_update: bool = False,
+        remove_beyond_last_update: bool = True
+    ):
+        """Assemble the dataframe from the logger"""
+
+        if self.is_initiated:
+            nstates = self.mean_at_step(0).size
+            if xnames is None:
+                xnames = [f'X{i}' for i in range(nstates)]
+            else:
+                assert len(xnames) == nstates, 'len(xnames) incompatible!'
+
+            # basics
+            idf = pd.DataFrame([])
+            rdf = self.dfraw
+            idf['TimeElapsed'] = rdf['time_elapsed']
+            idf['Flag'] = rdf['flag']
+
+            # # state mean and var
+            state_mean = np.stack(rdf['state_mean'])
+            state_cov = np.stack(rdf['state_cov'])
+            for ix, iname in enumerate(xnames):
+                idf[iname] = state_mean[:, ix]
+                if variance:
+                    idf[f'{iname}_Var'] = state_cov[:, ix, ix]
+
+            # metrics
+            if metrics:
+                mdf = rdf['metrics'].apply(pd.Series)
+                idf = pd.concat([idf, mdf], axis=1)
+
+            # # # forecast at update step
+            # # if remove_forecast_at_update:
+            # #     ibool = idf.TimeElapsed.diff().shift(-1) == 0
+            # #     ibool = (ibool) & (self.dfraw.obs.isnull())
+            # #     idf.drop(idf[ibool].index, inplace=True)
+
+            if remove_beyond_last_update:
+                ibool = idf.index > self.last_update_index
+                idf.drop(idf[ibool].index, inplace=True)
+        return idf
 
     def record(
         self,
@@ -53,52 +111,42 @@ class FilterLogger:
         )
         self._raw.append(new_entry)
 
-    # def is_flag(self, flag: str) -> ndarray:
-    #     """Get state mean for idx state index"""
-    #     if not self.df.empty:
-    #         return self.df.flag == flag
+    def remove_last_entry(self):
+        """Removes last entry"""
+        del self._raw[-1]
 
-    def state_mean(self, x_idx: int | None = None) -> ndarray | None:
-        """Get x_idx state for all times """
-        if not self.df.empty:
-            if x_idx is not None:
-                return np.stack(self.df.state_mean.values)[:, x_idx]
-            else:
-                return np.stack(self.df.state_mean.values)
-
-    def state_var(
+    def state_var_ij(
         self,
-        x1_idx: int | None = None,
+        x1_idx: int,
         x2_idx: int | None = None
     ) -> ndarray | None:
         """Get entry (idx_1, x2_idx) from the cov matrix"""
-        if not self.df.empty:
-            if x1_idx is not None:
-                x2_idx = x1_idx if x2_idx is None else x2_idx
-                return np.stack(self.df.state_cov.values)[:, x1_idx, x2_idx]
-            else:
-                return np.stack(self.df.state_cov.values)
+        if self.is_initiated:
+            x2_idx = x1_idx if x2_idx is None else x2_idx
+            assert isinstance(x1_idx, int), 'Index needs to be int!'
+            assert isinstance(x2_idx, int), 'Index needs to be int!'
+            return np.stack(self.dfraw.state_cov.values)[:, x1_idx, x2_idx]
 
-    def obs(self, t_idx) -> ndarray | None:
+    def time_at_step(self, idx: int) -> ndarray | None:
+        """Get state mean for idx time step"""
+        return self._raw[idx]['time_elapsed']
+
+    def mean_at_step(self, idx: int) -> ndarray | None:
+        """Get state mean for idx time step"""
+        return self._raw[idx]['state_mean']
+
+    def cov_at_step(self, idx: int):
+        """Get state covariance for idx time step"""
+        return self._raw[idx]['state_cov']
+
+    def obs_at_step(self, idx) -> ndarray | None:
         """Get observation vector at given time index"""
-        if not self.df.empty:
-            return self.df.obs.iloc[t_idx]
+        return self._raw[idx]['obs']
 
-    def obs_var(self, t_idx: int) -> ndarray | None:
+    def obs_var_at_step(self, idx: int) -> ndarray | None:
         """Get observation covariance matrix at t_idx time index"""
-        if not self.df.empty:
-            return self.df.obs_cov.iloc[t_idx]
+        return self._raw[idx]['obs_cov']
 
-    def flag(self, t_idx: int | None = None) -> ndarray | None:
+    def flag_at_step(self, idx: int) -> ndarray | None:
         """Get observation covariance matrix at t_idx time index"""
-        if not self.df.empty:
-            if t_idx is not None:
-                return self.df.flag.iloc[t_idx]
-            else:
-                return self.df.flag.values
-
-    @property
-    def time_elapsed(self):
-        """Get state mean for idx state index"""
-        if not self.df.empty:
-            return np.stack(self.df.time_elapsed.values)
+        return self._raw[idx]['flag']
