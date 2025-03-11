@@ -12,46 +12,41 @@ class LinearObservationModel(StateSpaceModel):
     def __init__(
             self,
             nx: int,
-            obs_state_inds: list[int],
-            xnames: list[str] = None
+            ynames: list[int],
+            xnames: list[str] = None,
+            name:str='LinearObservationModel'
     ):
         """Initiatilization function"""
-        self._state_inds = np.atleast_1d(obs_state_inds)
-        _names = [f'X{i}' for i in range(nx)]
         super().__init__(
             nx=int(nx),
-            name=f'LinearObsModel({nx}/{len(self._state_inds)})',
-            xnames=_names if xnames is None else xnames
+            name=name,
+            xnames=xnames
         )
-        if max(self._state_inds) >= self.nx:
-            self.raiseit(f'Max state index > {self.nx-1}')
-        if len(self._state_inds) > self.nx:
-            self.raiseit(f'# of observed states > {self.nx}')
+
+        self.check_state_names(xnames=ynames)
+        self.xinds_obs = [i for i,e in enumerate(xnames) if e in ynames]
+        self.ynames=ynames
 
         # H matrix
-        _Hmat: ndarray = np.zeros((self.ny, self.nx))  # obs function
-        for k, v in enumerate(self.obs_state_inds):
-            _Hmat[int(k), int(v)] = 1.
+        self._Hmat: ndarray = np.zeros((self.ny, self.nx))  # obs function
+        for k, v in enumerate(self.xinds_obs):
+            self._Hmat[int(k), int(v)] = 1.
+
+    def __repr__(self) -> str:
+        """repr"""
+        cls = self.__class__.__name__
+        xnames = ','.join(self.xnames)
+        istr = f'{cls}(name={self.name}, nx={self.nx}, ny={self.ny}, '
+        ystr=','.join(self.ynames)
+        istr += f'ynames=[{ystr}])'
+        return istr
 
     @property
     def ny(self) -> int:
         """Dimension of observation space """
-        return len(self.obs_state_inds)
-
-    @property
-    def obs_state_inds(self) -> int:
-        """Observed stae indices"""
-        return self._state_inds
+        return len(self.xinds_obs)
 
     @property
     def Hmat(self) -> ndarray:
         """Measurement-State matrix"""
-        _Hmat: ndarray = np.zeros((self.ny, self.nx))  # obs function
-        for k, v in enumerate(self.obs_state_inds):
-            _Hmat[int(k), int(v)] = 1.
-        return _Hmat
-
-    @property
-    def ynames(self) -> list[str]:
-        """Observed state names"""
-        return [self.xnames[i] for i in self.obs_state_inds]
+        return self._Hmat

@@ -43,6 +43,7 @@ class KalmanFilter(KalmanFilterBase):
         """Kalman filter update step"""
         # residual in obs
         yhat = self.mat_H @ self.vars.m
+        #print(self.mat_H.shape, out_vars.R.shape)
         Smat = self.mat_H @ self.vars.P @ self.mat_H.T + out_vars.R
         out_vars.Sinv = np.linalg.pinv(Smat, hermitian=True)
         out_vars.yres = self.fun_subtract_y(out_vars.y, yhat)

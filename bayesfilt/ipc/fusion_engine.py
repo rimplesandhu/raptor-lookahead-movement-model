@@ -13,6 +13,7 @@ import numpy as np
 from numpy import ndarray
 from tqdm import tqdm
 from bayesfilt.filters import KalmanFilterBase
+from bayesfilt.models import LinearObservationModel
 from .utils import run_loop
 
 
@@ -20,10 +21,11 @@ from .utils import run_loop
 class FusionSensor:
     """Sensor class for fusion"""
     name: str = field(init=True, repr=True)
+    om:LinearObservationModel=field(init=True, repr=True)
     start_mean_func: Callable = field(init=True, repr=False)
     obs_covariance: ndarray = field(init=True, repr=False)
-    get_yinds_to_ignore: callable = None
-    ignore_obs_inds_for_association: ndarray | None = None
+    #get_yinds_to_ignore: callable = None
+    ignore_yinds_for_association: ndarray | None = None
 
 
 class FusionEngine:
@@ -56,6 +58,17 @@ class FusionEngine:
 
         # for logging
         self._raw: Dict[int, KalmanFilterBase] = {}
+
+    def __repr__(self) -> str:
+        """repr"""
+        cls = self.__class__.__name__
+        istr = f'{cls}(\n  name={self.name},\n  Filter={self.kf_base},'
+        snames = ','.join([iy.name for ix,iy in self.sensors.items()])
+        istr += f'\n  Sensors=[{snames}]'
+        istr += f'\n  Gate_threshold={self.gate_threshold},'
+        istr += f'\n  Pred_lifespan={self.pred_lifespan},'
+        istr += '\n)'
+        return istr
 
     @property
     def objects(self) -> dict:
@@ -211,8 +224,10 @@ class FusionEngine:
         for this_id in self.active_objects:
             if this_id not in self.ignored_objects:
                 this_kf = self._raw[this_id]
-                ignore_yinds = self._cur_sensor.get_yinds_to_ignore(
-                    this_kf.vars.m)
+                # ignore_yinds = self._cur_sensor.get_yinds_to_ignore(
+                #     this_kf.vars.m)
+                ignore_yinds = self._cur_sensor.ignore_yinds_for_association
+                this_kf.mat_H = self._cur_sensor.om.Hmat
                 this_kf.update(
                     obs_y=np.asarray(idata),
                     obs_R=self._cur_sensor.obs_covariance,
@@ -244,6 +259,7 @@ class FusionEngine:
 
             # select using probs
             detected_object = max(object_probs, key=object_probs.get)
+            self._raw[detected_object].mat_H = self._cur_sensor.om.Hmat
             self._raw[detected_object].update(
                 obs_y=np.asarray(idata),
                 obs_R=self._cur_sensor.obs_covariance,
@@ -265,7 +281,7 @@ class FusionEngine:
             print(f'Selected:{detected_object}')
 
         # finish
-        self.ignored_objects.append(deepcopy(detected_object))
+        #self.ignored_objects.append(deepcopy(detected_object))
         self._prev_time = deepcopy(self._cur_time)
         self._prev_sensor_name = deepcopy(self._cur_sensor.name)
 

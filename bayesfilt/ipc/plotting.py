@@ -17,12 +17,12 @@ cb_clrs = ['#377eb8', '#ff7f00', '#4daf4a',
 
 
 def intersection_plot_initiator(
-    figsize: tuple[float, float] = (5, 5),
+    figsize: tuple[float, float] = (6, 6),
     xlim: tuple[float, float] = [-100, 100],
     ylim: tuple[float, float] = [-100, 100],
     left_str: str = 'Colorado Springs',
     close_fig: bool = False,
-    clr: str = 'lavender'
+    clr: str = 'lavender',
 ):
     """Initialize the plot for creating animations"""
     fig, ax = plt.subplots(figsize=figsize, layout="constrained")
@@ -64,7 +64,7 @@ def intersection_legend_creator(ax, sensors: list[TrafficSensor]):
         handles=list_of_patches,
         loc=1,
         ncols=1,
-        borderpad=0,
+        borderpad=0.2,
         # handlelength=1.5,
         fontsize=9,
     )

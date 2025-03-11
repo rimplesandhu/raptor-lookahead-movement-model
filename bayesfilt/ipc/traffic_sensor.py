@@ -37,7 +37,7 @@ class TrafficSensor:
         df: pd.DataFrame,
         name: str = 'Sensor0',
         clr: str = 'b',
-        verbose: bool = True,
+        verbose: bool = False,
         objectid_colname: str = 'ObjectId',
         time_colname: str = 'Time',
         x_colname: str = 'PositionX',
@@ -59,7 +59,8 @@ class TrafficSensor:
         self.check_column_names([self.idcol, self.tcol, self.xcol, self.ycol])
 
         # time info
-        self.df[self.tcol] = self.df[self.tcol].dt.tz_localize(None)
+        self.df[self.tcol] = pd.to_datetime(self.df[self.tcol]).dt.tz_localize(None)
+        #self.df[self.tcol] = self.df[self.tcol].dt.tz_localize(None)
         self.printit(f'starts at {self.df[self.tcol].min()}')
         self.printit(f'  ends at {self.df[self.tcol].max()}')
 
@@ -73,7 +74,9 @@ class TrafficSensor:
         # other info
         self.tecol = 'TimeElapsed'
         self.cnames = [self.idcol, self.tecol, self.xcol, self.ycol]
+        self.df['IgnoreThese'] = False
         self.sensor_loc = (0., 0.)
+        self.sensor_loc_tmp = [0., 0.]
         self.width_col = None
         self.length_col = None
         self.heading_col = None
@@ -81,17 +84,19 @@ class TrafficSensor:
         self.show_ids: bool = False
         self.dff = None
 
+
     def __repr__(self):
+        min_t = self.df[self.tcol].min().time().strftime("%H:%M:%S")
+        max_t = self.df[self.tcol].max().time().strftime("%H:%M:%S")
         return (f'{self.__class__.__name__}('
                 f'name={self.name}, '
-                f'n_rows={self.df.shape[0]:,}, '
-                f'n_cols={self.df.shape[1]:,})'
+                f'size={self.df.shape[0]:,}, '
+                f'trange={min_t}-{max_t})'
                 )
 
     def printit(self, istr: str):
         """Print command"""
-        if self.verbose:
-            print(self.name + ':', istr, flush=True)
+        print(self.name + ':', istr, flush=True)
 
     def check_column_names(self, cnames: list[str]):
         """check if column exists in data"""
@@ -116,6 +121,27 @@ class TrafficSensor:
         max_time = np.around(self.df[self.tecol].max(), 3)
         self.printit(f'Time range: {min_time}-{max_time} sec')
 
+    def compute_speed_from_position(self):
+        """Computes speed info from position data"""
+        
+        # figure out the start of track
+        self.sort_df_by([self.idcol, self.tcol])
+        track_start = self.df[self.idcol].diff().astype(bool).fillna(True)
+        
+        # compute speeds
+        xscol = 'SpeedX_DERIVED'
+        self.df[xscol] = self.df[self.xcol].diff()
+        yscol = 'SpeedY_DERIVED'
+        self.df[yscol] = self.df[self.ycol].diff()
+
+        # finish
+        for icol in [xscol, yscol]:
+            self.df[icol] /= self.df.TimeElapsed.diff()
+            self.df.loc[track_start, icol] = np.nan
+            self.df[icol].bfill(inplace=True)
+        self.df['Speed_DERIVED'] = self.df[xscol]**2+self.df[yscol]**2
+        self.df['Speed_DERIVED'] = self.df['Speed_DERIVED'].apply(np.sqrt)
+
     def transform(
         self,
         angle_deg: float,
@@ -136,7 +162,8 @@ class TrafficSensor:
         )
         self.df[f'{self.xcol}_Transformed'] = xnew + xdist
         self.df[f'{self.ycol}_Transformed'] = ynew + ydist
-        self.sensor_loc = (xdist, ydist)
+        self.sensor_loc_tmp[0] = self.sensor_loc[0] + xdist
+        self.sensor_loc_tmp[1] = self.sensor_loc[1] + ydist
 
         # heading
         if heading_col in self.df.columns:
@@ -178,6 +205,7 @@ class TrafficSensor:
 
     def replace_original_with_transformed(self):
         """replace original data with transformed"""
+        self.sensor_loc = deepcopy(self.sensor_loc_tmp)
         for cname in self.df.columns:
             if '_Transformed' in cname:
                 rname = cname.rsplit('_', 1)[0]
@@ -196,17 +224,15 @@ class TrafficSensor:
                     inplace=True
                 )
 
-    def ignore_for_fusion(self, condition: pd.Series):
+    def ignore_these_detections(self, condition: pd.Series):
         """Bool Series for ignoring data"""
         if not pd.api.types.is_bool_dtype(condition):
             raise ValueError('Need Bool pandas Series!')
         cname = 'IgnoreThese'
-        if cname in self.df.columns:
-            self.df[cname] = (self.df[cname]) | (condition)
-        else:
-            self.df[cname] = condition
+        self.df[cname] = (self.df[cname]) | (condition)
         perc = np.around(self.df[cname].sum()*100/len(self.df), 2)
-        self.printit(f'{perc}% data ignored')
+        if self.verbose:
+            self.printit(f'{perc}% data ignored')
 
     def update_dff(self):
         """Update dff dataframe needed for fusion"""
@@ -375,8 +401,19 @@ def create_frames_from_sensors(
     _ = [plt.close(fig) for fig, _ in figures]
     loop_tuple = [(ix[1], iy) for ix, iy in zip(figures, list_of_etimes)]
 
+    # consider data only within the axis limits
+    _, ax = figures[0]
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    pad = 10.
+
     # run the loop
     for isensor in list_of_sensors:
+
+        # ignore detections outside axis bounds
+        xbool = isensor.df[isensor.xcol].between(xmin+pad, xmax-pad)
+        ybool = isensor.df[isensor.ycol].between(ymin+pad, ymax-pad)
+        isensor.ignore_these_detections(condition=~(xbool & ybool))
         isensor.update_dff()
 
         def draw_frame_fn(ituple):
@@ -416,6 +453,7 @@ def create_frames_from_sensors(
             handles=list_of_patches,
             loc=1,
             ncols=2,
+            frameon=False,
             # handlelength=1.5,
             fontsize=9,
         )

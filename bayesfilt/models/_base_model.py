@@ -31,6 +31,12 @@ class StateSpaceModel(ABC):
         cls = self.__class__.__name__
         xnames = ','.join(self.xnames)
         return f'{cls}(name={self.name}, nx={self.nx}, xnames={xnames})'
+    
+    def check_state_names(self, xnames:list[str]):
+        """Check if state names are valid"""
+        for iname in xnames:
+            if iname not in self.xnames:
+                self.raiseit(f'Invalid state name: {iname}\nOptions:{self.xnames}')
 
 
 @dataclass(frozen=True, kw_only=True)

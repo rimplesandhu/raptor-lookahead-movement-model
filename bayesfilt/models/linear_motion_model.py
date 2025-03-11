@@ -21,6 +21,7 @@ class LinearMotionModel(StateSpaceModel):
         """Model error covariance matrix"""
 
 
+
 class RandomWalk(LinearMotionModel):
     """Class for Random Walk model """
 
