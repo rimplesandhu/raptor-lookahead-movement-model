@@ -19,7 +19,7 @@ if __name__ == "__main__":
     print('\n---Data annotation script', flush=True)
     start_time = time.time()
 
-    output_dir = os.path.join('/home/rsandhu/projects_car/csg_data/output')
+    output_dir = os.path.join('/home/rsandhu/zazzle/BSSRS/IpcFusion/examples/csg/output')
     FNAME = 'csg_ge_vr.prq'
     vrate_fpath = os.path.join(output_dir, 'telemetry', FNAME)
     ann_fpath = os.path.join(output_dir, 'telemetry', f'{FNAME}_tracks')
@@ -48,53 +48,53 @@ if __name__ == "__main__":
         min_num_points=50,
         time_col='TimeLocal'
     )
-    csg.partition_into_subdomains(save_domain=True)
+    csg.partition_into_subdomains()
     csg.sort_df()
     csg.df.to_parquet(ann_fpath)
 
     # annotate hrrr data
-    csg.annotate_hrrr_data(tracks_only=True)
-    csg.annotate_wind_conditions(list_of_heights=[10, 80])
-    csg.df.to_parquet(ann_fpath)
+    #csg.annotate_hrrr_data(tracks_only=True)
+    #csg.annotate_wind_conditions(list_of_heights=[10, 80])
+    #csg.df.to_parquet(ann_fpath)
 
     # orographic updraft
-    gf_func = partial(
-        gaussian_filter,
-        sigma=10,
-        mode='constant',
-        truncate=5,
-        cval=0
-    )
-    annotate_fn = partial(
-        csg.annotate_3dep_data,
-        heading_col='HeadingHor_TU',
-        tracks_only=True,
-        filter_func=gf_func
-    )
+#     gf_func = partial(
+#         gaussian_filter,
+#         sigma=10,
+#         mode='constant',
+#         truncate=5,
+#         cval=0
+#     )
+#     annotate_fn = partial(
+#         csg.annotate_3dep_data,
+#         heading_col='HeadingHor_TU',
+#         tracks_only=True,
+#         filter_func=gf_func
+#     )
 
-    flag_dict = {
-        '': (0, 0),
-    }
+#     flag_dict = {
+#         '': (0, 0),
+#     }
 
-    def drop_these(istr):
-        """Drop these columns"""
-        csg.df.drop(
-            columns=[i for i in csg.df.columns if istr in i],
-            inplace=True
-        )
-    for k, v in flag_dict.items():
-        csg.printit(f'Annotating orographic updraft {k}..')
-        annotate_fn(flag=k, dist_away=v[0], angle_away=v[1])
-        csg.annotate_orographic_updraft(flag=k)
-        drop_these('Term')
-        drop_these('Slope_')
-        drop_these('Aspect_')
-        csg.df.to_parquet(ann_fpath)
+#     def drop_these(istr):
+#         """Drop these columns"""
+#         csg.df.drop(
+#             columns=[i for i in csg.df.columns if istr in i],
+#             inplace=True
+#         )
+#     for k, v in flag_dict.items():
+#         csg.printit(f'Annotating orographic updraft {k}..')
+#         annotate_fn(flag=k, dist_away=v[0], angle_away=v[1])
+#         csg.annotate_orographic_updraft(flag=k)
+#         drop_these('Term')
+#         drop_these('Slope_')
+#         drop_these('Aspect_')
+#         csg.df.to_parquet(ann_fpath)
 
-    # other derived variables
-    csg.df['AltitudeAgl'] = csg.df['Altitude'] - csg.df['GroundElevation']
-    csg.sort_df()
-    csg.df.to_parquet(ann_fpath)
+#     # other derived variables
+#     csg.df['AltitudeAgl'] = csg.df['Altitude'] - csg.df['GroundElevation']
+#     csg.sort_df()
+#     csg.df.to_parquet(ann_fpath)
 
     # end
     run_time = np.around(((time.time() - start_time)) / 60., 2)

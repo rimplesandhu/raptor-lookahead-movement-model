@@ -1,0 +1,18 @@
+[project]
+name = "raptor-lookahead-movement-model"
+version = "0.1.0"
+description = "Finescale movement modeling of raptors using lookahead strategies"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cartopy>=0.25.0",
+    "matplotlib>=3.10.8",
+    "numpy>=2.3.5",
+    "pandas>=2.3.3",
+    "pathos>=0.3.4",
+    "rasterio>=1.4.4",
+    "rioxarray>=0.20.0",
+    "scipy>=1.16.3",
+    "tqdm>=4.67.1",
+    "xarray>=2025.12.0",
+]

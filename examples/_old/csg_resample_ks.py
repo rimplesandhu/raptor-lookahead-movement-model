@@ -34,13 +34,13 @@ def resample_function_cvm(dftrack):
     #     'sigma_mu_ver': 0.04
     # }
     phi = {
-        'eta_hor': 0.5,
+        'eta_hor': 1.,
         'sigma_log_tau_hor': 0.1,
-        'sigma_mu_hor': 0.4,
+        'sigma_mu_hor': 0.2,
         'sigma_omega': 0.01,
-        'eta_ver': 0.5,
+        'eta_ver': 1.,
         'sigma_log_tau_ver': 0.1,
-        'sigma_mu_ver': 0.1
+        'sigma_mu_ver': 0.04
     }
     cvm = CorrelatedVelocityResampler(phi=phi, dt=1., smoother=True)
     cvm.resample(dftrack)
@@ -55,7 +55,7 @@ def resample_function_ca(dftrack):
     """resample function"""
     track_id = dftrack['TrackID'].iloc[0]
     sampler = partial(ConstantAccelerationResampler, dt=1., smoother=True)
-    rs_x = sampler(error_strength=0.7, flag='X')  # 0.75
+    rs_x = sampler(error_strength=0.75, flag='X')
     rs_x.resample(
         times=dftrack['TrackTimeElapsed'].values,
         locs=dftrack['PositionX'].values,
@@ -63,7 +63,7 @@ def resample_function_ca(dftrack):
         start_state_std=[4., 2., 2.],
         object_id=track_id
     )
-    rs_y = sampler(error_strength=0.7, flag='Y')  # 0.75
+    rs_y = sampler(error_strength=0.75, flag='Y')
     rs_y.resample(
         times=dftrack['TrackTimeElapsed'].values,
         locs=dftrack['PositionY'].values,
@@ -71,11 +71,11 @@ def resample_function_ca(dftrack):
         start_state_std=[4., 2., 2.],
         object_id=track_id
     )
-    rs_z = sampler(error_strength=0.025, flag='Z')  # 0.25
+    rs_z = sampler(error_strength=0.25, flag='Z')
     rs_z.resample(
         times=dftrack['TrackTimeElapsed'].values,
         locs=dftrack['Altitude'].values,
-        error_std=dftrack['ErrorVDOP'].values * 4.5,
+        error_std=dftrack['ErrorVDOP'].values * 4.0,
         start_state_std=[4., 2., 2.],
         object_id=track_id
     )
@@ -120,25 +120,24 @@ def resample_function_cv(dftrack):
 def postprocess_dframe(sdf, dftrack, dt):
     """postprocess function"""
     sdf = sdf.loc[:, ~sdf.columns.duplicated()].copy()
-    # cols_to_drop = [ix for ix in sdf.columns if '_var' in ix]
-    # cols_to_drop = [ix for ix in cols_to_drop if 'Position' not in ix]
+    #cols_to_drop = [ix for ix in sdf.columns if '_var' in ix]
+    #cols_to_drop = [ix for ix in cols_to_drop if 'Position' not in ix]
     cols_to_drop = [ix for ix in sdf.columns if 'Metric' in ix]
     sdf.drop(columns=cols_to_drop, inplace=True)
     sdf['TimeUTC'] = pd.date_range(
         start=dftrack['TimeUTC'].iloc[0],
         periods=len(sdf),
-        freq=str(dt) + "S"
+        freq=str(dt) + "s"
     )
     sdf['TimeLocal'] = pd.date_range(
         start=dftrack['TimeLocal'].iloc[0],
         periods=len(sdf),
-        freq=str(dt) + "S"
+        freq=str(dt) + "s"
     )
     sdf['Group'] = [dftrack['Group'].iloc[0]] * len(sdf)
     sdf['AnimalID'] = [dftrack['AnimalID'].iloc[0]] * len(sdf)
     sdf['Age'] = [dftrack['Age'].iloc[0]] * len(sdf)
     sdf['Sex'] = [dftrack['Sex'].iloc[0]] * len(sdf)
-    sdf['TimeElapsed'] -= sdf['TimeElapsed'].iloc[0]
     return sdf
 
 
@@ -166,18 +165,18 @@ def annotate_derived_vars(rdf, tdf):
     rdf['Longitude'] = np.asarray(xylocs[:, 0]).astype('float32')
     rdf['Latitude'] = np.asarray(xylocs[:, 1]).astype('float32')
     rdf['VelocityHor'] = np.sqrt(rdf['VelocityX']**2 + rdf['VelocityY']**2)
-    rdf['Heading'] = np.degrees(np.arctan2(rdf['VelocityX'], rdf['VelocityY']))
-    # rdf['HeadingHor'] = (np.degrees(rdf['HeadingHor'])) % 360
+    rdf['HeadingHor'] = np.arctan2(rdf['VelocityX'], rdf['VelocityY'])
+    #rdf['HeadingHor'] = (np.degrees(rdf['HeadingHor'])) % 360
     rdf.reset_index(inplace=True, drop=True)
-    # xbool = rdf['PositionX'].between(
-    #     tdf['PositionX'].min(),
-    #     tdf['PositionX'].max()
-    # )
-    # ybool = rdf['PositionY'].between(
-    #     tdf['PositionY'].min(),
-    #     tdf['PositionY'].max()
-    # )
-    # rdf = rdf.loc[(xbool) & (ybool), :]
+    xbool = rdf['PositionX'].between(
+        tdf['PositionX'].min(),
+        tdf['PositionX'].max()
+    )
+    ybool = rdf['PositionY'].between(
+        tdf['PositionY'].min(),
+        tdf['PositionY'].max()
+    )
+    rdf = rdf.loc[(xbool) & (ybool), :]
     if 'AccelerationX' in rdf.columns:
         rdf['AccnHorTangential'] = (rdf['AccelerationX'] * rdf['VelocityX'] +
                                     rdf['AccelerationY'] * rdf['VelocityY'])
@@ -187,7 +186,7 @@ def annotate_derived_vars(rdf, tdf):
         rdf['AccnHorRadial'] = rdf['AccnHorRadial'] / rdf['VelocityHor']
         rdf['RadiusOfCurvature'] = rdf['VelocityHor']**2 / \
             rdf['AccnHorRadial'].abs()
-        rdf['HeadingRate'] = np.degrees(
+        rdf['HeadingRateHor'] = np.degrees(
             rdf['AccnHorRadial'] / rdf['VelocityHor'])
     return rdf
 
@@ -197,13 +196,13 @@ if __name__ == "__main__":
     print('\n---Data resampling script', flush=True)
     start_time = time.time()
 
-    output_dir = os.path.join('/home/rsandhu/projects_car/csg_data/output')
+    output_dir = os.path.join('/home/rsandhu/zazzle/BSSRS/IpcFusion/examples/csg/output')
     FNAME = 'csg_ge_vr.prq_tracks'
     vrate_fpath = os.path.join(output_dir, 'telemetry', FNAME)
     df = pd.read_parquet(vrate_fpath)
     df_bool = df['Group'].isin(['pa', 'wy', 'hr'])
     list_of_tracks = df.loc[df_bool, 'TrackID'].unique()
-    # list_of_tracks = csg.df['TrackID'].unique()
+    #list_of_tracks = csg.df['TrackID'].unique()
     list_of_dftrack = [df[df['TrackID'] == ix]
                        for ix in list_of_tracks if ix != 0]
 
